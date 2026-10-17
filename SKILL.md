@@ -53,7 +53,7 @@ Paths in this file are relative to the skill's folder, the one that contains thi
 
 See [SETUP.md](SETUP.md). Search works with just an API key, without signing in. Everything that touches the user's playlists (`list`, `videos`, `create`, `edit`, `delete`, `add`, `remove`) needs a one-time Google OAuth sign-in with `auth`.
 
-Credentials are read from `config.json` in the config folder: `~/.openclaw/youtube/` by default, `$OPENCLAW_STATE_DIR/youtube` when OpenClaw's state folder is moved, or any folder named by `YOUTUBE_SKILL_CONFIG_DIR`. The env vars `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` override it. The sign-in is stored in `tokens.json` in the same folder, readable by the owner only. Never print or share these files.
+Credentials are read from `config.json` in the config folder: `~/.openclaw/youtube/` by default, `$OPENCLAW_STATE_DIR/youtube` when OpenClaw's state folder is moved (an existing `~/.openclaw/youtube/` stays in use until its files move), or any folder named by `YOUTUBE_SKILL_CONFIG_DIR`. The env vars `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` override it. The sign-in is stored in `tokens.json` in the same folder, readable by the owner only. Never print or share these files.
 
 ## Commands
 

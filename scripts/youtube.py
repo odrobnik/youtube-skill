@@ -19,7 +19,8 @@ JSON document (errors too, as {"error": {...}}); human-readable text goes to std
 
 Credentials live in config.json in the config folder (env vars override it), OAuth
 tokens in tokens.json next to it. The folder is $YOUTUBE_SKILL_CONFIG_DIR if set,
-else $OPENCLAW_STATE_DIR/youtube, else ~/.openclaw/youtube. Standard library only.
+else $OPENCLAW_STATE_DIR/youtube (unless only ~/.openclaw/youtube exists yet), else
+~/.openclaw/youtube. Standard library only.
 """
 
 import argparse
@@ -45,13 +46,26 @@ from typing import Optional
 
 # --- Paths ---
 
+def _exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:  # unreadable parent: treat as absent rather than fail at import
+        return False
+
+
 def _config_dir() -> Path:
     """Where config and tokens live; ~/.openclaw is kept by OpenClaw's backups and Docker setups."""
     custom = os.environ.get("YOUTUBE_SKILL_CONFIG_DIR")
     if custom:
         return Path(custom).expanduser()
+    legacy = Path.home() / ".openclaw" / "youtube"
     state = os.environ.get("OPENCLAW_STATE_DIR")
-    return (Path(state).expanduser() if state else Path.home() / ".openclaw") / "youtube"
+    if state:
+        moved = Path(state).expanduser() / "youtube"
+        # Before 1.2.0 the folder was always ~/.openclaw/youtube: keep using it until the files move
+        if _exists(moved) or not _exists(legacy):
+            return moved
+    return legacy
 
 
 CONFIG_DIR = _config_dir()

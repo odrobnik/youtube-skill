@@ -29,7 +29,7 @@ The commands in SKILL.md are relative to this folder (`scripts/youtube.py`); age
 Nothing is stored inside the skill folder. Config and the sign-in share one config folder:
 
 1. `$YOUTUBE_SKILL_CONFIG_DIR`, if set
-2. otherwise `$OPENCLAW_STATE_DIR/youtube`, if OpenClaw's state folder has been moved
+2. otherwise `$OPENCLAW_STATE_DIR/youtube`, if OpenClaw's state folder has been moved. An existing `~/.openclaw/youtube/` keeps being used until you move its files there.
 3. otherwise `~/.openclaw/youtube/`
 
 The default works with every agent, not only OpenClaw. On OpenClaw, keep it: OpenClaw's backups and its Docker setup preserve `~/.openclaw`.
