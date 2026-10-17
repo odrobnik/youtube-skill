@@ -25,11 +25,7 @@ Create `~/.openclaw/youtube/config.json`:
 }
 ```
 
-and make it readable by you only:
-
-```bash
-chmod 600 ~/.openclaw/youtube/config.json
-```
+Keep the file private to your account (file mode 600); the script warns when other users can read it.
 
 ### Environment Variables
 
@@ -85,4 +81,8 @@ Or forward the port (`ssh -L 8923:127.0.0.1:8923 <host>`) and run plain `auth` o
 
 ## Signing Out
 
-Delete `~/.openclaw/youtube/tokens.json` and remove the app's access at <https://myaccount.google.com/permissions>.
+```bash
+python3 scripts/youtube.py logout
+```
+
+This revokes the sign-in at Google and deletes `~/.openclaw/youtube/tokens.json`. You can also remove the app's access at <https://myaccount.google.com/permissions>.
