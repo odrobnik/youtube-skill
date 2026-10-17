@@ -158,7 +158,7 @@ def load_tokens() -> dict:
 
 
 def refresh_access_token(tokens: dict) -> dict:
-    """Get a fresh access token; updates `tokens` in place and on disk."""
+    """Renew the expired sign-in; updates `tokens` in place and on disk."""
     if not tokens.get("refresh_token"):
         _fail("No refresh token stored. Run: youtube.py auth")
     client_id, client_secret = _require_oauth(_load_config())

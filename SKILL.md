@@ -1,9 +1,14 @@
 ---
 name: youtube-playlist-manager
-description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3: list, create, rename and delete playlists, add and remove videos. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
-summary: "YouTube search and playlist management via the Data API v3."
-version: 1.1.0
+description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored in ~/.openclaw/youtube/, refreshed automatically, and revoked by logout. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
+summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
+version: 1.1.1
 homepage: https://github.com/odrobnik/youtube-skill
+permissions:
+  - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1 (port 8923 by default, or the one passed to auth --port)"
+  - "file_read: ~/.openclaw/youtube/config.json, tokens.json and pending-auth.json"
+  - "file_write: ~/.openclaw/youtube/tokens.json and pending-auth.json (owner-only)"
+  - "env: YOUTUBE_API_KEY, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET"
 metadata:
   openclaw:
     emoji: "🎬"
@@ -37,7 +42,7 @@ Search YouTube and manage your own playlists through the YouTube Data API v3.
 
 ## Setup
 
-See [SETUP.md](SETUP.md). Search needs an API key or a sign-in; playlist commands need a one-time Google sign-in.
+See [SETUP.md](SETUP.md). Search works with just an API key, without signing in. Everything that touches the user's playlists (`list`, `videos`, `create`, `edit`, `delete`, `add`, `remove`) needs a one-time Google OAuth sign-in with `auth`.
 
 Credentials are read from `~/.openclaw/youtube/config.json`; the env vars `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` override it. The sign-in is stored in `~/.openclaw/youtube/tokens.json`, readable by the owner only. Never print or share these files.
 
@@ -74,15 +79,16 @@ python3 {baseDir}/scripts/youtube.py remove <playlist_item_id> [more ...] [--yes
 - `add` accepts watch, `youtu.be`, Shorts, embed and live URLs as well as bare 11-character video IDs.
 - Search returns the most relevant matches. Use `--order date` only when the user wants the newest uploads.
 - YouTube shows changes after a few seconds. `list` right after a change can still show the old state, and two quick `edit`s of the same playlist can undo each other, so leave about 10 seconds between them.
-- **Signing in needs the user.** Run `auth --manual`, send the user the URL, and ask for the address their browser shows afterwards. It starts with `http://127.0.0.1:8923/`, and that page not loading is expected. Then run `auth --code "<that address>"`. On the user's own computer, plain `auth` opens the browser and finishes by itself.
+- **Signing in needs the user.** Run `auth --manual`, send the user the URL, and ask for the address their browser shows afterwards. It starts with `http://127.0.0.1:8923/` (or the port passed with `--port`), and that page not loading is expected. Then run `auth --code "<that address>"`. On the user's own computer, plain `auth` opens the browser and finishes by itself.
 - If a command reports that the sign-in expired or was revoked, sign in again. If that happens every 7 days, point the user to the "Publish app" step in SETUP.md.
 
 ## Security and permissions
 
 - **Network:** only Google. `www.googleapis.com` for the YouTube Data API; `accounts.google.com` and `oauth2.googleapis.com` for signing in and out.
 - **Files:** reads `~/.openclaw/youtube/config.json`; reads and writes `tokens.json` and, during sign-in, `pending-auth.json` in the same folder, all owner-only. Nothing else on disk.
-- **Local:** `auth` opens the browser and listens on `127.0.0.1:8923` for up to 5 minutes. Apart from that, the script starts no other programs and downloads no code.
+- **Local:** `auth` opens the browser and listens on `127.0.0.1` for up to 5 minutes, on port 8923 unless `--port` picks another. Apart from that, the script starts no other programs and downloads no code.
 - **Sign-in lifetime:** the stored sign-in keeps working until it is revoked. `logout` revokes it at Google and deletes `tokens.json`.
+- **Declared scope:** the `permissions` list in the frontmatter states this same scope for reviewers and scanners. Hosts don't enforce it; it describes what the script does.
 
 ## Quota
 

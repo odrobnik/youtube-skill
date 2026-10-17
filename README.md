@@ -1,6 +1,6 @@
 # youtube-skill
 
-🎬 Search YouTube and manage your playlists (create, rename, delete, add and remove videos) via the [YouTube Data API v3](https://developers.google.com/youtube/v3). Python 3 standard library only.
+🎬 Search YouTube and manage your playlists (create, rename, delete, add and remove videos) via the [YouTube Data API v3](https://developers.google.com/youtube/v3). Search works with just an API key; managing playlists needs a one-time Google OAuth sign-in. Python 3 standard library only.
 
 An [OpenClaw](https://openclaw.ai) skill, published on ClawHub as `youtube-playlist-manager`.
 
