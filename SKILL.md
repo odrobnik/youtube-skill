@@ -1,8 +1,8 @@
 ---
 name: youtube-playlist-manager
-description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored in ~/.openclaw/youtube/, refreshed automatically, and revoked by logout. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
+description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored in ~/.openclaw/youtube/, refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
 summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
-version: 1.1.3
+version: 1.2.0
 homepage: https://github.com/odrobnik/youtube-skill
 permissions:
   - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1 (port 8923 by default, or the one passed to auth --port)"
@@ -76,8 +76,9 @@ python3 {baseDir}/scripts/youtube.py remove <playlist_item_id> [more ...] [--yes
 Add `--json` before or after the subcommand (`youtube.py --json list` = `youtube.py list --json`) to get machine-readable output:
 
 - **stdout carries exactly one JSON document**, also for errors. Human-readable text, emoji and warnings go to stderr (discard with `2>/dev/null`).
-- Pretty-printed (indent 2) when stdout is a terminal, compact one-line JSON when piped. UTF-8, not ASCII-escaped. HTML entities (`&amp;`, `&#39;`) are decoded in all API text, in text and JSON mode.
-- **Errors:** `{"error": {"message": "...", "code": "..."}}` on stdout, non-zero exit (1 = failure, 2 = usage). `code` is the API reason (e.g. `playlistNotFound`, `invalid`), or `not_signed_in`, `missing_credentials`, `missing_oauth_client`, `network_error`, `usage`.
+- Pretty-printed (indent 2) when stdout is a terminal, compact one-line JSON when piped. UTF-8, not ASCII-escaped. Search results arrive HTML-escaped from YouTube; their entities (`&amp;`, `&#39;`) are decoded, in text and JSON mode. Playlist data is passed through unchanged.
+- **Errors:** `{"error": {"message": "...", "code": "..."}}` on stdout, non-zero exit (1 = failure, 2 = usage, including bad option values). `code` is the API reason (e.g. `playlistNotFound`, `invalid`), or `not_signed_in`, `missing_credentials`, `missing_oauth_client`, `network_error`, `usage`.
+- If `add` or `remove` stops part-way on a playlist-level error, the JSON still lists what was already done, with `"ok": false` and an `error` object.
 
 | Command | JSON shape |
 |---|---|

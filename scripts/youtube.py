@@ -112,6 +112,14 @@ def _write_json(obj):
     _JSON_OUT.flush()
 
 
+def _flush_result():
+    """Write the recorded result as the single JSON document (JSON mode only)."""
+    global _RESULT
+    if JSON_MODE and _RESULT is not None:
+        _write_json(_RESULT)
+        _RESULT = None
+
+
 def _fail(message: str, code: str = "error", exit_code: int = 1):
     if JSON_MODE:
         _write_json({"error": {"message": message, "code": code}})
@@ -119,8 +127,20 @@ def _fail(message: str, code: str = "error", exit_code: int = 1):
     sys.exit(exit_code)
 
 
+def _abort(partial: dict, e: "ApiError"):
+    """Stop a run part-way: the JSON lists what already happened, plus the error."""
+    code = e.reason or f"http_{e.status}"
+    if JSON_MODE:
+        _write_json(dict(partial, ok=False, error={"message": str(e), "code": code}))
+    print(f"ERROR: {e}", file=sys.stderr)
+    sys.exit(1)
+
+
 def _unescape(obj):
-    """Decode HTML entities (&amp; &#39; ...) in every string of an API reply."""
+    """Decode HTML entities (&amp; &#39; ...) in every string of an API reply.
+
+    Only search results arrive escaped; playlist endpoints return plain text, which
+    must not be decoded (an edit would write the changed text back)."""
     if isinstance(obj, str):
         return html.unescape(obj)
     if isinstance(obj, list):
@@ -240,8 +260,7 @@ def _open_json(req: urllib.request.Request) -> dict:
             raw = resp.read()
     except urllib.error.HTTPError as e:
         raise _api_error(e) from None
-    data = json.loads(raw) if raw else {}
-    return _unescape(data) if req.full_url.startswith(API_BASE) else data
+    return json.loads(raw) if raw else {}
 
 
 def _post_form(url: str, fields: dict) -> dict:
@@ -509,7 +528,7 @@ def cmd_add(args):
             result = api_request("POST", _api_url("playlistItems", {"part": "snippet"}), tokens, body)
         except ApiError as e:
             if e.reason not in VIDEO_ERRORS:
-                raise
+                _abort({"playlist_id": args.playlist_id, "results": results}, e)
             print(f"  ❌ {video_id}: {e}", file=sys.stderr)
             results.append({"input": vid, "ok": False, "video_id": video_id,
                             "error": {"message": e.args[0], "code": e.reason or str(e.status)}})
@@ -598,7 +617,10 @@ def cmd_remove(args):
         _needs_confirmation("removed", {"items": entries})
 
     for entry in entries:
-        api_request("DELETE", _api_url("playlistItems", {"id": entry["item_id"]}), tokens)
+        try:
+            api_request("DELETE", _api_url("playlistItems", {"id": entry["item_id"]}), tokens)
+        except ApiError as e:
+            _abort({"items": entries}, e)
         entry["removed"] = True
         print(f"  ✅ Removed item {entry['item_id']}")
     emit({"ok": True, "items": entries})
@@ -741,7 +763,7 @@ def cmd_search(args):
         _fail(code="missing_credentials", message="Search needs an API key (YOUTUBE_API_KEY or api_key in "
               f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
 
-    items = data.get("items", [])
+    items = _unescape(data.get("items", []))  # search, unlike playlists, returns HTML-escaped text
     emit([{"id": item["id"].get("videoId"), "video_id": item["id"].get("videoId"),
            "title": item["snippet"].get("title", ""),
            "description": item["snippet"].get("description", ""),
@@ -787,8 +809,14 @@ def main():
     parser = argparse.ArgumentParser(description="YouTube search and playlist manager",
                                      parents=[json_opt])
     sub = parser.add_subparsers(dest="command")
+    subparsers = []
     _add_parser = sub.add_parser
-    sub.add_parser = lambda *a, **kw: _add_parser(*a, parents=[json_opt], **kw)
+
+    def add_parser(*a, **kw):
+        p = _add_parser(*a, parents=[json_opt], **kw)
+        subparsers.append(p)
+        return p
+    sub.add_parser = add_parser
 
     p_auth = sub.add_parser("auth", help="Sign in with Google (opens browser)")
     p_auth.add_argument("--code", help="Finish a manual sign-in: the code or the full redirect address")
@@ -844,11 +872,13 @@ def main():
     p_search.add_argument("--after", help="Published after (YYYY-MM-DD)")
     p_search.add_argument("--channel", help="Filter by Channel ID")
 
-    global JSON_MODE
+    global JSON_MODE, _JSON_OUT
+    _JSON_OUT = sys.stdout
     if "--json" in sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]:
         JSON_MODE = True  # set early so argparse usage errors are reported as JSON too
         sys.stdout = sys.stderr
-        parser.error = lambda msg: _fail(msg, "usage", 2)
+        for p in (parser, *subparsers):  # a bad value for a subcommand option errors in its subparser
+            p.error = lambda msg: _fail(msg, "usage", 2)
     args = parser.parse_args()
     JSON_MODE = getattr(args, "json", False) or JSON_MODE
     if JSON_MODE and sys.stdout is _JSON_OUT:
@@ -867,6 +897,7 @@ def main():
     }
     try:
         cmds[args.command](args)
+        _flush_result()
     except ApiError as e:
         _fail(str(e), e.reason or f"http_{e.status}")
     except (urllib.error.URLError, socket.timeout) as e:
@@ -875,13 +906,5 @@ def main():
         sys.exit(130)
 
 
-def _flush_result():
-    global _RESULT
-    if JSON_MODE and _RESULT is not None:
-        _write_json(_RESULT)
-        _RESULT = None
-
-
 if __name__ == "__main__":
     main()
-    _flush_result()
