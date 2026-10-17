@@ -26,8 +26,8 @@ python3 scripts/youtube.py search "lego technic review" --max 5
 python3 scripts/youtube.py auth
 
 python3 scripts/youtube.py create "Weekend viewing"
-python3 scripts/youtube.py add <playlist_id> https://youtu.be/<video_id>
-python3 scripts/youtube.py videos <playlist_id>
+python3 scripts/youtube.py add PLAYLIST_ID https://youtu.be/VIDEO_ID
+python3 scripts/youtube.py videos PLAYLIST_ID
 python3 scripts/youtube.py --json list | jq -r '.[].title'   # --json on any command: one JSON document on stdout
 ```
 
