@@ -154,20 +154,6 @@ def _abort(partial: dict, e: "ApiError"):
     sys.exit(1)
 
 
-def _unescape(obj):
-    """Decode HTML entities (&amp; &#39; ...) in every string of an API reply.
-
-    Only search results arrive escaped; playlist endpoints return plain text, which
-    must not be decoded (an edit would write the changed text back)."""
-    if isinstance(obj, str):
-        return html.unescape(obj)
-    if isinstance(obj, list):
-        return [_unescape(v) for v in obj]
-    if isinstance(obj, dict):
-        return {k: _unescape(v) for k, v in obj.items()}
-    return obj
-
-
 def _playlist_json(p: dict) -> dict:
     s = p.get("snippet", {})
     return {
@@ -798,7 +784,10 @@ def cmd_search(args):
         _fail(code="missing_credentials", message="Search needs an API key (YOUTUBE_API_KEY or api_key in "
               f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
 
-    items = _unescape(data.get("items", []))  # search, unlike playlists, returns HTML-escaped text
+    items = data.get("items", [])
+    for item in items:  # search returns titles HTML-escaped (Father&#39;s); descriptions arrive as plain text
+        snippet = item.get("snippet", {})
+        snippet["title"] = html.unescape(snippet.get("title", ""))
     emit([{"id": item["id"].get("videoId"), "video_id": item["id"].get("videoId"),
            "title": item["snippet"].get("title", ""),
            "description": item["snippet"].get("description", ""),
