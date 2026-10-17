@@ -239,6 +239,8 @@ def load_tokens() -> dict:
         tokens = json.loads(TOKEN_FILE.read_text())
         if not isinstance(tokens, dict):
             raise ValueError("expected a JSON object")
+        if not tokens.get("access_token"):
+            raise ValueError("no access token in it")
         return tokens
     except (ValueError, OSError) as e:
         _fail(f"Cannot read {TOKEN_FILE} ({e}). Run: youtube.py auth", "not_signed_in")
@@ -264,6 +266,8 @@ def refresh_access_token(tokens: dict) -> dict:
             hint = ("\nGoogle gave this sign-in a limited lifetime, usually because the OAuth consent "
                     "screen is in Testing mode (7 days). Publish the app to stay signed in (see SETUP.md).")
         _fail("Google rejected the stored sign-in (expired or revoked). Run: youtube.py auth" + hint, e.code)
+    if not new.get("access_token"):
+        _fail("Google returned no access token. Run: youtube.py auth", "not_signed_in")
     tokens["access_token"] = new["access_token"]
     if new.get("refresh_token"):
         tokens["refresh_token"] = new["refresh_token"]
@@ -896,7 +900,8 @@ def main():
 
     global JSON_MODE, _JSON_OUT
     _JSON_OUT = sys.stdout
-    if "--json" in sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]:
+    argv = sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]
+    if any(len(a) >= 3 and "--json".startswith(a) for a in argv):  # argparse also accepts --j, --js, --jso
         JSON_MODE = True  # set early so argparse usage errors are reported as JSON too
         sys.stdout = sys.stderr
         for p in (parser, *subparsers):  # a bad value for a subcommand option errors in its subparser
