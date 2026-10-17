@@ -7,11 +7,11 @@ Usage:
     python3 youtube.py auth --code CODE_OR_URL     # Finish a manual sign-in
     python3 youtube.py list                        # List your playlists
     python3 youtube.py create "Name" [--privacy private|unlisted|public] [--description TEXT]
-    python3 youtube.py edit <playlist_id> [--title T] [--description D] [--privacy P]
-    python3 youtube.py add <playlist_id> <video_url_or_id> [...]
-    python3 youtube.py videos <playlist_id>
-    python3 youtube.py remove <playlist_item_id> [...] [--yes]  # Without --yes: preview only
-    python3 youtube.py delete <playlist_id> [--yes]             # Without --yes: preview only
+    python3 youtube.py edit PLAYLIST_ID [--title T] [--description D] [--privacy P]
+    python3 youtube.py add PLAYLIST_ID VIDEO_URL_OR_ID [...]
+    python3 youtube.py videos PLAYLIST_ID
+    python3 youtube.py remove ITEM_ID [...] [--yes]  # Without --yes: preview only
+    python3 youtube.py delete PLAYLIST_ID [--yes]  # Without --yes: preview only
     python3 youtube.py logout                      # Revoke the sign-in, delete the tokens
 
 Global option --json (before or after the subcommand): stdout carries exactly one
@@ -244,7 +244,7 @@ def load_tokens() -> dict:
         if not isinstance(tokens, dict):
             raise ValueError("expected a JSON object")
         if not tokens.get("access_token"):
-            raise ValueError("no access token in it")
+            raise ValueError("the sign-in data is incomplete")
         return tokens
     except (ValueError, OSError) as e:
         _fail(f"Cannot read {TOKEN_FILE} ({e}). Run: youtube.py auth", "not_signed_in")
@@ -271,7 +271,7 @@ def refresh_access_token(tokens: dict) -> dict:
                     "screen is in Testing mode (7 days). Publish the app to stay signed in (see SETUP.md).")
         _fail("Google rejected the stored sign-in (expired or revoked). Run: youtube.py auth" + hint, e.code)
     if not new.get("access_token"):
-        _fail("Google returned no access token. Run: youtube.py auth", "not_signed_in")
+        _fail("Google returned no new sign-in token. Run: youtube.py auth", "not_signed_in")
     tokens["access_token"] = new["access_token"]
     if new.get("refresh_token"):
         tokens["refresh_token"] = new["refresh_token"]
