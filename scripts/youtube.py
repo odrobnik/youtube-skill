@@ -823,9 +823,12 @@ def main():
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     except (AttributeError, ValueError):
         pass
-    # Keep stdout and stderr in order when both go to one pipe (as agents read them)
+    # Always write UTF-8, even under an ASCII or legacy locale (minimal containers, some
+    # consoles), and keep stdout and stderr in order when both go to one pipe (as agents read them)
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace", line_buffering=True)
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
 
     json_opt = argparse.ArgumentParser(add_help=False)
     json_opt.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
