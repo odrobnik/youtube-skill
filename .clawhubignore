@@ -24,5 +24,6 @@ auth.json
 config.json
 *.pem
 
-# GitHub-only docs (SKILL.md serves as ClawHub readme)
+# GitHub-only docs (SKILL.md serves as ClawHub readme) and tests
 README.md
+tests/

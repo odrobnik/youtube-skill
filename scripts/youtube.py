@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""YouTube search and playlist management via the YouTube Data API v3.
+"""YouTube search, video details and playlist management via the YouTube Data API v3.
 
 Usage:
     python3 youtube.py search "query" [--max N] [--order relevance|date|...]
+    python3 youtube.py video VIDEO_URL_OR_ID [...]  # Full description, duration, counts, chapters
     python3 youtube.py auth [--manual] [--port N]  # One-time Google sign-in
     python3 youtube.py auth --code CODE_OR_URL     # Finish a manual sign-in
     python3 youtube.py list                        # List your playlists
@@ -84,6 +85,10 @@ HTTP_TIMEOUT = 30
 NEEDS_CONFIRMATION_EXIT = 3  # a delete or remove run without --yes only previews, then exits with this
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# videos.list durations: PT1H2M3S, and P1DT2H3M4S once a video is a day or longer
+DURATION_RE = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$")
+# A chapter line in a description: "0:00 Intro", "1:02:03 - Outro", "(12:34) Demo"
+CHAPTER_RE = re.compile(r"^\s*[(\[]?((?:\d{1,2}:)?\d{1,2}:\d{2})[)\]]?\s*[-–—:|]?\s+(\S.*?)\s*$")
 # playlistItems.insert errors that concern one video; anything else stops `add`
 VIDEO_ERRORS = {"videoNotFound", "invalidResourceId"}
 
@@ -545,7 +550,7 @@ def cmd_list(_args):
 def cmd_add(args):
     tokens = load_tokens()
     failed, results = 0, []
-    for vid in args.videos:
+    for vid in (v.strip() for v in args.videos):  # main() pads bare IDs that start with -
         video_id = extract_video_id(vid)
         if not video_id:
             print(f"  ❌ Not a YouTube video URL or ID: {vid}", file=sys.stderr)
@@ -631,8 +636,9 @@ def cmd_remove(args):
         for item in api_request("GET", _api_url("playlistItems", params), tokens).get("items", []):
             found[item["id"]] = item["snippet"]
     titles = _playlist_titles(sorted({s["playlistId"] for s in found.values()}), tokens)
-    print(f"{'Removing' if args.yes else 'Would remove'} {len(args.item_ids)} playlist entr"
-          f"{'y' if len(args.item_ids) == 1 else 'ies'}:")
+    n = len(args.item_ids)
+    entries_label = f"{n} playlist entr{'y' if n == 1 else 'ies'}"
+    print(f"Removing {entries_label}:" if args.yes else f"Would remove {entries_label}:")
     for item_id in args.item_ids:
         s = found.get(item_id)
         if s:
@@ -674,7 +680,8 @@ def cmd_delete(args):
                  f"{p['status']['privacyStatus']})")
     else:
         label = "unknown playlist (not found, or not visible yet)"
-    print(f"{'Deleting' if args.yes else 'Would delete'} playlist {label}  [{args.playlist_id}]")
+    print(f"Deleting playlist {label}  [{args.playlist_id}]" if args.yes
+          else f"Would delete playlist {label}  [{args.playlist_id}]")
     if not args.yes:
         _needs_confirmation("deleted", {"playlist": pj})
 
@@ -759,6 +766,117 @@ def cmd_edit(args):
     print(f"✅ Updated playlist: {result['snippet']['title']}")
     print(f"   Privacy: {result['status']['privacyStatus']}")
     emit({"ok": True, "playlist": _playlist_json(result)})
+
+
+def _duration_seconds(iso: str) -> Optional[int]:
+    m = DURATION_RE.match(iso or "")
+    if not m or not any(m.groups()):
+        return None
+    days, hours, minutes, seconds = (int(g or 0) for g in m.groups())
+    return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
+
+
+def _format_duration(seconds: int) -> str:
+    """H:MM:SS, or M:SS under an hour."""
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def _chapters(description: str, duration: Optional[int] = None) -> list:
+    """Chapters as YouTube finds them: timestamped lines from 0:00 on, ascending, at least three,
+    each at least 10 seconds long (the last one too, when the video's length is known)."""
+    chapters = []
+    for line in description.splitlines():
+        m = CHAPTER_RE.match(line)
+        if not m:
+            continue
+        start = 0
+        for part in m.group(1).split(":"):
+            start = start * 60 + int(part)
+        if not chapters and start:
+            continue  # the list starts at 0:00
+        if chapters and start <= chapters[-1]["start_seconds"]:
+            break  # a timestamp out of order ends the list
+        chapters.append({"timestamp": m.group(1), "start_seconds": start, "title": m.group(2)})
+    starts = [c["start_seconds"] for c in chapters] + ([duration] if duration else [])
+    if len(chapters) < 3 or any(b - a < 10 for a, b in zip(starts, starts[1:])):
+        return []  # YouTube shows no chapters for such a list
+    return chapters
+
+
+def _count(value) -> Optional[int]:
+    """Statistics arrive as strings; hidden like counts and disabled comments are missing."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _video_json(item: dict) -> dict:
+    s, stats = item.get("snippet", {}), item.get("statistics", {})
+    description = s.get("description", "")  # videos.list sends plain text; only search escapes
+    seconds = _duration_seconds(item.get("contentDetails", {}).get("duration", ""))
+    duration = _format_duration(seconds) if seconds is not None else None
+    if s.get("liveBroadcastContent") in ("live", "upcoming"):  # P0D until the stream is over
+        duration, seconds = s["liveBroadcastContent"], None
+    return {
+        "video_id": item["id"], "title": s.get("title", ""), "description": description,
+        "channel": s.get("channelTitle", ""), "channel_id": s.get("channelId"),
+        "published_at": s.get("publishedAt"), "duration": duration, "duration_seconds": seconds,
+        "view_count": _count(stats.get("viewCount")), "like_count": _count(stats.get("likeCount")),
+        "comment_count": _count(stats.get("commentCount")),
+        "url": f"https://youtube.com/watch?v={item['id']}", "chapters": _chapters(description, seconds),
+    }
+
+
+def cmd_video(args):
+    video_ids = []
+    for url_or_id in args.videos:
+        video_id = extract_video_id(url_or_id)
+        if not video_id:
+            _fail(f"Not a YouTube video URL or ID: {url_or_id}", "invalid_video")
+        if video_id not in video_ids:
+            video_ids.append(video_id)
+
+    # API key if configured, otherwise the OAuth sign-in (same quota either way)
+    cfg = _load_config()
+    if not cfg["api_key"] and not TOKEN_FILE.exists():
+        _fail(code="missing_credentials", message="video needs an API key (YOUTUBE_API_KEY or api_key in "
+              f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
+    tokens = None if cfg["api_key"] else load_tokens()
+    found = {}
+    for i in range(0, len(video_ids), 50):  # videos.list takes up to 50 IDs per call
+        params = {"part": "snippet,contentDetails,statistics", "id": ",".join(video_ids[i:i + 50])}
+        if tokens:
+            data = api_request("GET", _api_url("videos", params), tokens)
+        else:
+            data = _open_json(urllib.request.Request(_api_url("videos", dict(params, key=cfg["api_key"]))))
+        found.update((item["id"], item) for item in data.get("items", []))
+
+    results = [_video_json(found[v]) if v in found else
+               {"video_id": v, "found": False,
+                "error": {"message": "Video not found (deleted, private, or a wrong ID)", "code": "videoNotFound"}}
+               for v in video_ids]
+    emit(results)
+    for r in results:
+        if "error" in r:
+            print(f"❌ {r['video_id']}: {r['error']['message']}", file=sys.stderr)
+            continue
+        print(f"📺 {r['title']}")
+        print(f"   Channel: {r['channel']}")
+        print(f"   Published: {(r['published_at'] or '')[:10]}")
+        print(f"   Duration: {r['duration'] or 'unknown'}")
+        if r["view_count"] is not None:
+            print(f"   Views: {r['view_count']:,}")
+        print(f"   URL: {r['url']}")
+        if not JSON_MODE:  # the JSON carries the description; don't repeat it on stderr
+            print(f"\nDescription:\n{r['description'] or '(none)'}\n")
+            print("─" * 80)
+            print()
+    if len(found) < len(video_ids):
+        _flush_result()
+        sys.exit(1)
 
 
 def cmd_search(args):
@@ -913,15 +1031,26 @@ def main():
     p_search.add_argument("--after", help="Published after (YYYY-MM-DD)")
     p_search.add_argument("--channel", help="Filter by Channel ID")
 
+    p_video = sub.add_parser("video", help="Get full details of one or more videos")
+    p_video.add_argument("videos", nargs="+", metavar="VIDEO_URL_OR_ID",
+                         help="Video URLs or IDs (watch, youtu.be, Shorts, embed, live, or bare 11-char ID)")
+
     global JSON_MODE, _JSON_OUT
     _JSON_OUT = sys.stdout
-    argv = sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]
+    words = sys.argv[1:]
+    command_at = next((i for i, a in enumerate(words) if not a.startswith("-")), len(words))
+    if words[command_at:command_at + 1] in (["video"], ["add"]):
+        # 1 in 64 video IDs starts with "-", which argparse would take for an option. A leading
+        # space keeps such a bare ID positional; extract_video_id strips it again.
+        words[command_at + 1:] = [" " + a if a.startswith("-") and VIDEO_ID_RE.match(a) else a
+                                  for a in words[command_at + 1:]]
+    argv = words[:words.index("--") if "--" in words else None]
     if any(len(a) >= 3 and "--json".startswith(a) for a in argv):  # argparse also accepts --j, --js, --jso
         JSON_MODE = True  # set early so argparse usage errors are reported as JSON too
         sys.stdout = sys.stderr
         for p in (parser, *subparsers):  # a bad value for a subcommand option errors in its subparser
             p.error = lambda msg: _fail(msg, "usage", 2)
-    args = parser.parse_args()
+    args = parser.parse_args(words)
     JSON_MODE = getattr(args, "json", False) or JSON_MODE
     if JSON_MODE and sys.stdout is _JSON_OUT:
         sys.stdout = sys.stderr
@@ -935,7 +1064,7 @@ def main():
         "auth": cmd_auth, "create": cmd_create, "list": cmd_list,
         "add": cmd_add, "videos": cmd_videos, "remove": cmd_remove,
         "delete": cmd_delete, "edit": cmd_edit, "search": cmd_search,
-        "logout": cmd_logout,
+        "video": cmd_video, "logout": cmd_logout,
     }
     try:
         cmds[args.command](args)

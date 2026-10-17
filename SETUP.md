@@ -58,7 +58,7 @@ Env vars override config.json values. [.env.example](.env.example) lists them; t
 
 | Variable | Needed for | Description |
 |---|---|---|
-| `YOUTUBE_API_KEY` | Search | YouTube Data API v3 key. Without it, search uses your sign-in. |
+| `YOUTUBE_API_KEY` | Search, video details | YouTube Data API v3 key. Without it, both use your sign-in. |
 | `YOUTUBE_CLIENT_ID` | Playlists | OAuth 2.0 client ID (Desktop app) |
 | `YOUTUBE_CLIENT_SECRET` | Playlists | OAuth 2.0 client secret |
 | `YOUTUBE_SKILL_CONFIG_DIR` | Optional | A different config folder |
@@ -75,7 +75,7 @@ Env vars override config.json values. [.env.example](.env.example) lists them; t
 1. Open <https://console.cloud.google.com/> and choose the project to use (a new one is fine).
 2. **APIs & Services → Library → YouTube Data API v3 → Enable**.
 
-## 2. API Key (Search)
+## 2. API Key (Search and Video Details)
 
 1. **APIs & Services → Credentials**, open the **+** menu at the top and choose **API key**.
 2. Edit the key and restrict it to **YouTube Data API v3**.
