@@ -26,6 +26,7 @@ import argparse
 import base64
 import hashlib
 import html
+import http.client
 import http.server
 import json
 import os
@@ -96,14 +97,17 @@ class ApiError(Exception):
 def _api_error(e: urllib.error.HTTPError) -> ApiError:
     try:
         body = json.loads(e.read().decode() or "{}")
-    except (ValueError, OSError):
+    except (ValueError, OSError, http.client.HTTPException):
         body = {}
     finally:
         e.close()
     err = body.get("error", {}) if isinstance(body, dict) else {}
     if isinstance(err, str):  # OAuth endpoints: {"error": "invalid_grant", "error_description": ...}
         return ApiError(e.code, body.get("error_description") or err, err)
-    reason = (err.get("errors") or [{}])[0].get("reason", "")
+    if not isinstance(err, dict):
+        err = {}
+    first = (err.get("errors") or [{}])[0]
+    reason = first.get("reason", "") if isinstance(first, dict) else ""
     return ApiError(e.code, err.get("message") or str(e.reason), reason)
 
 
@@ -284,7 +288,12 @@ def _open_json(req: urllib.request.Request) -> dict:
             raw = resp.read()
     except urllib.error.HTTPError as e:
         raise _api_error(e) from None
-    return json.loads(raw) if raw else {}
+    except http.client.HTTPException as e:  # e.g. IncompleteRead: the connection dropped mid-reply
+        raise urllib.error.URLError(f"incomplete reply from Google ({type(e).__name__})") from None
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:  # e.g. a proxy or captive portal answering with HTML
+        raise urllib.error.URLError("the reply from Google wasn't JSON") from None
 
 
 def _post_form(url: str, fields: dict) -> dict:
