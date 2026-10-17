@@ -14,6 +14,9 @@ Usage:
     python3 youtube.py delete <playlist_id> [--yes]             # Without --yes: preview only
     python3 youtube.py logout                      # Revoke the sign-in, delete the tokens
 
+Global option --json (before or after the subcommand): stdout carries exactly one
+JSON document (errors too, as {"error": {...}}); human-readable text goes to stderr.
+
 Credentials live in ~/.openclaw/youtube/config.json (env vars override it);
 OAuth tokens in ~/.openclaw/youtube/tokens.json. Standard library only.
 """
@@ -21,6 +24,7 @@ OAuth tokens in ~/.openclaw/youtube/tokens.json. Standard library only.
 import argparse
 import base64
 import hashlib
+import html
 import http.server
 import json
 import os
@@ -88,9 +92,54 @@ def _api_error(e: urllib.error.HTTPError) -> ApiError:
     return ApiError(e.code, err.get("message") or str(e.reason), reason)
 
 
-def _fail(message: str):
+# --- Output (text or --json) ---
+
+JSON_MODE = False
+_JSON_OUT = sys.stdout  # the real stdout; in JSON mode sys.stdout points at stderr
+_RESULT = None
+
+
+def emit(obj):
+    """Record the command's JSON result (written once, at exit, in JSON mode)."""
+    global _RESULT
+    _RESULT = obj
+
+
+def _write_json(obj):
+    tty = _JSON_OUT.isatty()
+    _JSON_OUT.write(json.dumps(obj, ensure_ascii=False, indent=2 if tty else None,
+                               separators=None if tty else (",", ":")) + "\n")
+    _JSON_OUT.flush()
+
+
+def _fail(message: str, code: str = "error", exit_code: int = 1):
+    if JSON_MODE:
+        _write_json({"error": {"message": message, "code": code}})
     print(f"ERROR: {message}", file=sys.stderr)
-    sys.exit(1)
+    sys.exit(exit_code)
+
+
+def _unescape(obj):
+    """Decode HTML entities (&amp; &#39; ...) in every string of an API reply."""
+    if isinstance(obj, str):
+        return html.unescape(obj)
+    if isinstance(obj, list):
+        return [_unescape(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _unescape(v) for k, v in obj.items()}
+    return obj
+
+
+def _playlist_json(p: dict) -> dict:
+    s = p.get("snippet", {})
+    return {
+        "id": p["id"], "title": s.get("title", ""), "description": s.get("description", ""),
+        "privacy": p.get("status", {}).get("privacyStatus"),
+        "item_count": p.get("contentDetails", {}).get("itemCount"),
+        "channel": s.get("channelTitle"), "channel_id": s.get("channelId"),
+        "published_at": s.get("publishedAt"),
+        "url": f"https://youtube.com/playlist?list={p['id']}",
+    }
 
 
 # --- Configuration (config.json + env var overrides) ---
@@ -124,10 +173,8 @@ def _require_oauth(cfg: dict) -> tuple:
     cid = cfg.get("client_id", "")
     csec = cfg.get("client_secret", "")
     if not cid or not csec:
-        print("ERROR: Missing client_id/client_secret for OAuth.", file=sys.stderr)
-        print("Set YOUTUBE_CLIENT_ID + YOUTUBE_CLIENT_SECRET env vars,", file=sys.stderr)
-        print(f"or add to {CONFIG_FILE}", file=sys.stderr)
-        sys.exit(1)
+        _fail("Missing client_id/client_secret for OAuth. Set YOUTUBE_CLIENT_ID + "
+              f"YOUTUBE_CLIENT_SECRET env vars, or add them to {CONFIG_FILE}", "missing_oauth_client")
     return cid, csec
 
 
@@ -150,7 +197,7 @@ def save_tokens(tokens: dict):
 
 def load_tokens() -> dict:
     if not TOKEN_FILE.exists():
-        _fail("Not signed in to YouTube. Run: youtube.py auth")
+        _fail("Not signed in to YouTube. Run: youtube.py auth", "not_signed_in")
     try:
         return json.loads(TOKEN_FILE.read_text())
     except (ValueError, OSError) as e:
@@ -193,7 +240,8 @@ def _open_json(req: urllib.request.Request) -> dict:
             raw = resp.read()
     except urllib.error.HTTPError as e:
         raise _api_error(e) from None
-    return json.loads(raw) if raw else {}
+    data = json.loads(raw) if raw else {}
+    return _unescape(data) if req.full_url.startswith(API_BASE) else data
 
 
 def _post_form(url: str, fields: dict) -> dict:
@@ -293,6 +341,8 @@ def cmd_auth(args):
         print(f"Google then sends the browser to {redirect_uri}/?state=...&code=...")
         print("That page may not load, which is expected. Copy the full address from the address bar")
         print('and run: youtube.py auth --code "<address>"')
+        emit({"ok": True, "auth_url": auth_url, "redirect_uri": redirect_uri,
+              "next": 'youtube.py auth --code "<address>"'})
         return
 
     # Ephemeral localhost server that captures the callback
@@ -398,6 +448,9 @@ def _exchange_code(code: str, client_id: str, client_secret: str, redirect_uri: 
         days = round(tokens["refresh_token_expires_in"] / 86400)
         print(f"⚠️  Google limited this sign-in to {days} days, usually because the OAuth consent "
               "screen is in Testing mode. Publish the app to stay signed in (see SETUP.md).")
+    emit({"ok": True, "token_file": str(TOKEN_FILE),
+          "has_refresh_token": bool(tokens.get("refresh_token")),
+          "refresh_token_expires_in": tokens.get("refresh_token_expires_in")})
 
 
 def cmd_create(args):
@@ -415,13 +468,15 @@ def cmd_create(args):
     print(f"✅ Created playlist: {title} ({result['status']['privacyStatus']})")
     print(f"   ID: {pid}")
     print(f"   URL: https://youtube.com/playlist?list={pid}")
+    emit({"ok": True, "playlist": _playlist_json(result)})
 
 
 def cmd_list(_args):
     tokens = load_tokens()
     params = {"part": "snippet,contentDetails,status", "mine": "true"}
-    count = 0
+    count, out = 0, []
     for count, p in enumerate(_paged("playlists", params, tokens), 1):
+        out.append(_playlist_json(p))
         items = p["contentDetails"]["itemCount"]
         privacy = p.get("status", {}).get("privacyStatus", "?")
         print(f"  📋 {p['snippet']['title']} ({items} videos, {privacy})")
@@ -430,15 +485,18 @@ def cmd_list(_args):
         print()
     if not count:
         print("No playlists yet.")
+    emit(out)
 
 
 def cmd_add(args):
     tokens = load_tokens()
-    failed = 0
+    failed, results = 0, []
     for vid in args.videos:
         video_id = extract_video_id(vid)
         if not video_id:
             print(f"  ❌ Not a YouTube video URL or ID: {vid}", file=sys.stderr)
+            results.append({"input": vid, "ok": False, "video_id": None,
+                            "error": {"message": "Not a YouTube video URL or ID", "code": "invalid_video"}})
             failed += 1
             continue
         body = {
@@ -453,32 +511,47 @@ def cmd_add(args):
             if e.reason not in VIDEO_ERRORS:
                 raise
             print(f"  ❌ {video_id}: {e}", file=sys.stderr)
+            results.append({"input": vid, "ok": False, "video_id": video_id,
+                            "error": {"message": e.args[0], "code": e.reason or str(e.status)}})
             failed += 1
             continue
         print(f"  ✅ Added: {result['snippet']['title']} ({video_id})")
         print(f"     Item ID: {result['id']}")
+        results.append({"input": vid, "ok": True, "video_id": video_id, "item_id": result["id"],
+                        "title": result["snippet"].get("title", ""),
+                        "url": f"https://youtube.com/watch?v={video_id}"})
+    emit({"ok": not failed, "playlist_id": args.playlist_id, "results": results})
     if failed:
+        _flush_result()
         sys.exit(1)
 
 
 def cmd_videos(args):
     tokens = load_tokens()
     params = {"part": "snippet", "playlistId": args.playlist_id}
-    count = 0
+    count, out = 0, []
     for count, item in enumerate(_paged("playlistItems", params, tokens), 1):
         s = item["snippet"]
         vid = s["resourceId"]["videoId"]
         channel = s.get("videoOwnerChannelTitle")
+        out.append({"item_id": item["id"], "video_id": vid, "position": s.get("position"),
+                    "title": s.get("title", ""), "description": s.get("description", ""),
+                    "channel": channel, "channel_id": s.get("videoOwnerChannelId"),
+                    "published_at": s.get("publishedAt"), "playlist_id": s.get("playlistId"),
+                    "url": f"https://youtube.com/watch?v={vid}"})
         print(f"  {count}. {s['title']}" + (f"  ({channel})" if channel else ""))
         print(f"     https://youtube.com/watch?v={vid}")
         print(f"     Item ID: {item['id']} (for removal)")
         print()
     if not count:
         print("Playlist is empty.")
+    emit(out)
 
 
-def _needs_confirmation(what: str):
+def _needs_confirmation(what: str, preview=None):
     """Stop after a preview: destructive commands only run with --yes."""
+    if JSON_MODE:
+        _write_json(dict(preview or {}, ok=False, needs_confirmation=True, dry_run=True))
     print(f"\nNothing was {what}. Show this to the user and, after a clear yes, "
           "run the same command with --yes.", file=sys.stderr)
     sys.exit(NEEDS_CONFIRMATION_EXIT)
@@ -513,12 +586,22 @@ def cmd_remove(args):
             print(f"  - \"{s['title']}\" from \"{playlist}\"  [{item_id}]")
         else:
             print(f"  - unknown entry (not found, or not visible yet)  [{item_id}]")
-    if not args.yes:
-        _needs_confirmation("removed")
-
+    entries = []
     for item_id in args.item_ids:
-        api_request("DELETE", _api_url("playlistItems", {"id": item_id}), tokens)
-        print(f"  ✅ Removed item {item_id}")
+        s = found.get(item_id)
+        entries.append({"item_id": item_id, "found": bool(s),
+                        "video_id": s["resourceId"]["videoId"] if s else None,
+                        "title": s["title"] if s else None,
+                        "playlist_id": s["playlistId"] if s else None,
+                        "playlist_title": titles.get(s["playlistId"]) if s else None})
+    if not args.yes:
+        _needs_confirmation("removed", {"items": entries})
+
+    for entry in entries:
+        api_request("DELETE", _api_url("playlistItems", {"id": entry["item_id"]}), tokens)
+        entry["removed"] = True
+        print(f"  ✅ Removed item {entry['item_id']}")
+    emit({"ok": True, "items": entries})
 
 
 def cmd_delete(args):
@@ -527,6 +610,7 @@ def cmd_delete(args):
     # Show exactly what goes before anything is deleted
     params = {"part": "snippet,contentDetails,status", "id": args.playlist_id}
     items = api_request("GET", _api_url("playlists", params), tokens).get("items", [])
+    pj = _playlist_json(items[0]) if items else {"id": args.playlist_id, "found": False}
     if items:
         p = items[0]
         label = (f"\"{p['snippet']['title']}\" ({p['contentDetails']['itemCount']} videos, "
@@ -535,23 +619,27 @@ def cmd_delete(args):
         label = "unknown playlist (not found, or not visible yet)"
     print(f"{'Deleting' if args.yes else 'Would delete'} playlist {label}  [{args.playlist_id}]")
     if not args.yes:
-        _needs_confirmation("deleted")
+        _needs_confirmation("deleted", {"playlist": pj})
 
     api_request("DELETE", _api_url("playlists", {"id": args.playlist_id}), tokens)
     print(f"  ✅ Deleted playlist {args.playlist_id}")
+    emit({"ok": True, "deleted": True, "playlist": pj})
 
 
 def cmd_logout(_args):
     """Revoke the sign-in at Google, then delete the local tokens."""
     if not TOKEN_FILE.exists():
         print("Not signed in; nothing to do.")
+        emit({"ok": True, "revoked": False, "tokens_deleted": False, "was_signed_in": False})
         return
     tokens = load_tokens()
     token = tokens.get("refresh_token") or tokens.get("access_token")
+    revoked = False
     if token:
         try:
             _post_form(REVOKE_URL, {"token": token})
             print("✅ Revoked the sign-in at Google.")
+            revoked = True
         except ApiError as e:
             if e.reason != "invalid_token":
                 _fail(f"Could not revoke the sign-in ({e}); {TOKEN_FILE} was kept. Try again, or "
@@ -560,6 +648,7 @@ def cmd_logout(_args):
     TOKEN_FILE.unlink(missing_ok=True)
     PENDING_AUTH_FILE.unlink(missing_ok=True)
     print(f"✅ Deleted {TOKEN_FILE}")
+    emit({"ok": True, "revoked": revoked, "tokens_deleted": True, "was_signed_in": True})
 
 
 def cmd_edit(args):
@@ -612,6 +701,7 @@ def cmd_edit(args):
 
     print(f"✅ Updated playlist: {result['snippet']['title']}")
     print(f"   Privacy: {result['status']['privacyStatus']}")
+    emit({"ok": True, "playlist": _playlist_json(result)})
 
 
 def cmd_search(args):
@@ -648,10 +738,17 @@ def cmd_search(args):
     elif TOKEN_FILE.exists():
         data = api_request("GET", _api_url("search", params), load_tokens())
     else:
-        _fail("Search needs an API key (YOUTUBE_API_KEY or api_key in "
+        _fail(code="missing_credentials", message="Search needs an API key (YOUTUBE_API_KEY or api_key in "
               f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
 
     items = data.get("items", [])
+    emit([{"id": item["id"].get("videoId"), "video_id": item["id"].get("videoId"),
+           "title": item["snippet"].get("title", ""),
+           "description": item["snippet"].get("description", ""),
+           "channel": item["snippet"].get("channelTitle", ""),
+           "channel_id": item["snippet"].get("channelId"),
+           "published_at": item["snippet"].get("publishedAt"),
+           "url": f"https://youtube.com/watch?v={item['id'].get('videoId')}"} for item in items])
     for item in items:
         s = item["snippet"]
         vid = item["id"].get("videoId", "?")
@@ -684,8 +781,14 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
 
-    parser = argparse.ArgumentParser(description="YouTube search and playlist manager")
+    json_opt = argparse.ArgumentParser(add_help=False)
+    json_opt.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                          help="Print exactly one JSON document to stdout (text goes to stderr)")
+    parser = argparse.ArgumentParser(description="YouTube search and playlist manager",
+                                     parents=[json_opt])
     sub = parser.add_subparsers(dest="command")
+    _add_parser = sub.add_parser
+    sub.add_parser = lambda *a, **kw: _add_parser(*a, parents=[json_opt], **kw)
 
     p_auth = sub.add_parser("auth", help="Sign in with Google (opens browser)")
     p_auth.add_argument("--code", help="Finish a manual sign-in: the code or the full redirect address")
@@ -741,8 +844,18 @@ def main():
     p_search.add_argument("--after", help="Published after (YYYY-MM-DD)")
     p_search.add_argument("--channel", help="Filter by Channel ID")
 
+    global JSON_MODE
+    if "--json" in sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]:
+        JSON_MODE = True  # set early so argparse usage errors are reported as JSON too
+        sys.stdout = sys.stderr
+        parser.error = lambda msg: _fail(msg, "usage", 2)
     args = parser.parse_args()
+    JSON_MODE = getattr(args, "json", False) or JSON_MODE
+    if JSON_MODE and sys.stdout is _JSON_OUT:
+        sys.stdout = sys.stderr
     if not args.command:
+        if JSON_MODE:
+            _fail("No command given.", "usage", 2)
         parser.print_help()
         return
 
@@ -755,12 +868,20 @@ def main():
     try:
         cmds[args.command](args)
     except ApiError as e:
-        _fail(str(e))
+        _fail(str(e), e.reason or f"http_{e.status}")
     except (urllib.error.URLError, socket.timeout) as e:
-        _fail(f"Network error: {getattr(e, 'reason', e)}")
+        _fail(f"Network error: {getattr(e, 'reason', e)}", "network_error")
     except KeyboardInterrupt:
         sys.exit(130)
 
 
+def _flush_result():
+    global _RESULT
+    if JSON_MODE and _RESULT is not None:
+        _write_json(_RESULT)
+        _RESULT = None
+
+
 if __name__ == "__main__":
     main()
+    _flush_result()

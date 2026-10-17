@@ -16,6 +16,7 @@ python3 scripts/youtube.py auth
 python3 scripts/youtube.py create "Weekend viewing"
 python3 scripts/youtube.py add <playlist_id> https://youtu.be/<video_id>
 python3 scripts/youtube.py videos <playlist_id>
+python3 scripts/youtube.py --json list | jq -r '.[].title'   # --json on any command: one JSON document on stdout
 ```
 
 See [SKILL.md](SKILL.md) for all commands.

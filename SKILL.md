@@ -71,6 +71,33 @@ python3 {baseDir}/scripts/youtube.py add <playlist_id> <video_url_or_id> [more .
 python3 {baseDir}/scripts/youtube.py remove <playlist_item_id> [more ...] [--yes]
 ```
 
+## JSON output (`--json`)
+
+Add `--json` before or after the subcommand (`youtube.py --json list` = `youtube.py list --json`) to get machine-readable output:
+
+- **stdout carries exactly one JSON document**, also for errors. Human-readable text, emoji and warnings go to stderr (discard with `2>/dev/null`).
+- Pretty-printed (indent 2) when stdout is a terminal, compact one-line JSON when piped. UTF-8, not ASCII-escaped. HTML entities (`&amp;`, `&#39;`) are decoded in all API text, in text and JSON mode.
+- **Errors:** `{"error": {"message": "...", "code": "..."}}` on stdout, non-zero exit (1 = failure, 2 = usage). `code` is the API reason (e.g. `playlistNotFound`, `invalid`), or `not_signed_in`, `missing_credentials`, `missing_oauth_client`, `network_error`, `usage`.
+
+| Command | JSON shape |
+|---|---|
+| `search` | `[{id, video_id, title, description, channel, channel_id, published_at, url}]` |
+| `list` | `[{id, title, description, privacy, item_count, channel, channel_id, published_at, url}]` |
+| `videos` | `[{item_id, video_id, position, title, description, channel, channel_id, published_at, playlist_id, url}]` |
+| `create`, `edit` | `{ok, playlist: {...same as list...}}` |
+| `add` | `{ok, playlist_id, results: [{input, ok, video_id, item_id?, title?, url?, error?}]}` (exit 1 if any failed) |
+| `remove` | `{ok, items: [{item_id, found, video_id, title, playlist_id, playlist_title, removed?}]}` |
+| `delete` | `{ok, deleted, playlist: {...}}` |
+| `remove`/`delete` without `--yes` | the preview plus `"ok": false, "needs_confirmation": true, "dry_run": true`, exit 3 |
+| `auth --manual` | `{ok, auth_url, redirect_uri, next}`; `auth --code` / `auth`: `{ok, token_file, has_refresh_token, refresh_token_expires_in}` |
+| `logout` | `{ok, revoked, tokens_deleted, was_signed_in}` |
+
+```bash
+python3 {baseDir}/scripts/youtube.py --json search "lego technic" --max 3 | jq -r '.[] | "\(.title)\t\(.url)"'
+python3 {baseDir}/scripts/youtube.py list --json | jq -r '.[] | select(.privacy == "private") | .id'
+python3 {baseDir}/scripts/youtube.py videos <playlist_id> --json | jq -r '.[].item_id'
+```
+
 ## How to use it
 
 - **`delete` and `remove` are permanent and need `--yes`.** Run them without `--yes` first: they list exactly what would go, change nothing, and exit with status 3. Show that list to the user, and only after a clear yes run the same command with `--yes`.
