@@ -15,7 +15,7 @@ Nothing is stored inside the skill folder.
 | Sign-in tokens, written by `auth` | `~/.openclaw/youtube/tokens.json` (mode 600) |
 | Sign-in in progress, removed when done | `~/.openclaw/youtube/pending-auth.json` (mode 600) |
 
-Create `~/.openclaw/youtube/config.json`:
+Put your credentials in `~/.openclaw/youtube/config.json`:
 
 ```json
 {
@@ -41,7 +41,7 @@ In OpenClaw you can also set the API key as `skills.entries.youtube-playlist-man
 
 ## 1. Enable the API
 
-1. Open <https://console.cloud.google.com/> and create or pick a project.
+1. Open <https://console.cloud.google.com/> and choose the project to use (a new one is fine).
 2. **APIs & Services → Library → YouTube Data API v3 → Enable**.
 
 ## 2. API Key (Search)
