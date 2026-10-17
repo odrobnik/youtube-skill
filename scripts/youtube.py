@@ -17,8 +17,9 @@ Usage:
 Global option --json (before or after the subcommand): stdout carries exactly one
 JSON document (errors too, as {"error": {...}}); human-readable text goes to stderr.
 
-Credentials live in ~/.openclaw/youtube/config.json (env vars override it);
-OAuth tokens in ~/.openclaw/youtube/tokens.json. Standard library only.
+Credentials live in config.json in the config folder (env vars override it), OAuth
+tokens in tokens.json next to it. The folder is $YOUTUBE_SKILL_CONFIG_DIR if set,
+else $OPENCLAW_STATE_DIR/youtube, else ~/.openclaw/youtube. Standard library only.
 """
 
 import argparse
@@ -43,7 +44,16 @@ from typing import Optional
 
 # --- Paths ---
 
-CONFIG_DIR = Path.home() / ".openclaw" / "youtube"
+def _config_dir() -> Path:
+    """Where config and tokens live; ~/.openclaw is kept by OpenClaw's backups and Docker setups."""
+    custom = os.environ.get("YOUTUBE_SKILL_CONFIG_DIR")
+    if custom:
+        return Path(custom).expanduser()
+    state = os.environ.get("OPENCLAW_STATE_DIR")
+    return (Path(state).expanduser() if state else Path.home() / ".openclaw") / "youtube"
+
+
+CONFIG_DIR = _config_dir()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 TOKEN_FILE = CONFIG_DIR / "tokens.json"
 PENDING_AUTH_FILE = CONFIG_DIR / "pending-auth.json"

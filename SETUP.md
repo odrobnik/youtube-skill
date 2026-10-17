@@ -5,17 +5,42 @@
 - Python 3.8 or later (standard library only, no pip dependencies)
 - A Google Cloud project with the **YouTube Data API v3** enabled
 
+## Install
+
+The skill is a single folder. Name it `youtube-playlist-manager`, the skill's `name`, wherever it goes:
+
+| Agent | Where the folder goes |
+|---|---|
+| OpenClaw | `openclaw skills install @odrobnik/youtube-playlist-manager` (from ClawHub, into `<workspace>/skills/youtube-playlist-manager`) |
+| Claude Code | `~/.claude/skills/youtube-playlist-manager/`, or `.claude/skills/` inside a project |
+| Codex | `~/.agents/skills/youtube-playlist-manager/`, or `.agents/skills/` inside a repository (OpenClaw reads these folders too) |
+| Other agents, e.g. Grok | their skills folder, under the same name |
+
+From GitHub, for example for Claude Code:
+
+```bash
+git clone https://github.com/odrobnik/youtube-skill ~/.claude/skills/youtube-playlist-manager
+```
+
+The commands in SKILL.md are relative to this folder (`scripts/youtube.py`); agents run them by full path.
+
 ## Where Credentials Live
 
-Nothing is stored inside the skill folder.
+Nothing is stored inside the skill folder. Config and the sign-in share one config folder:
 
-| What | Where |
+1. `$YOUTUBE_SKILL_CONFIG_DIR`, if set
+2. otherwise `$OPENCLAW_STATE_DIR/youtube`, if OpenClaw's state folder has been moved
+3. otherwise `~/.openclaw/youtube/`
+
+The default works with every agent, not only OpenClaw. On OpenClaw, keep it: OpenClaw's backups and its Docker setup preserve `~/.openclaw`.
+
+| What | File in the config folder |
 |---|---|
-| API key, OAuth client ID and secret | `~/.openclaw/youtube/config.json`, or env vars (env vars win) |
-| Sign-in tokens, written by `auth` | `~/.openclaw/youtube/tokens.json` (mode 600) |
-| Sign-in in progress, removed when done | `~/.openclaw/youtube/pending-auth.json` (mode 600) |
+| API key, OAuth client ID and secret | `config.json`, or env vars (env vars win) |
+| Sign-in tokens, saved by `auth` | `tokens.json` (mode 600) |
+| Sign-in in progress, removed when done | `pending-auth.json` (mode 600) |
 
-Put your credentials in `~/.openclaw/youtube/config.json`:
+Put your credentials in `config.json` in that folder (by default `~/.openclaw/youtube/config.json`):
 
 ```json
 {
@@ -29,15 +54,21 @@ Keep the file private to your account (file mode 600); the script warns when oth
 
 ### Environment Variables
 
-Env vars override config.json values:
+Env vars override config.json values. [.env.example](.env.example) lists them; the script reads the environment, not that file.
 
 | Variable | Needed for | Description |
 |---|---|---|
 | `YOUTUBE_API_KEY` | Search | YouTube Data API v3 key. Without it, search uses your sign-in. |
 | `YOUTUBE_CLIENT_ID` | Playlists | OAuth 2.0 client ID (Desktop app) |
 | `YOUTUBE_CLIENT_SECRET` | Playlists | OAuth 2.0 client secret |
+| `YOUTUBE_SKILL_CONFIG_DIR` | Optional | A different config folder |
+| `OPENCLAW_STATE_DIR` | Optional | OpenClaw's state folder, if moved; the default config folder follows it |
 
-In OpenClaw you can also set the API key as `skills.entries.youtube-playlist-manager.apiKey` in `openclaw.json`.
+### OpenClaw Only
+
+- You can set the API key as `skills.entries.youtube-playlist-manager.apiKey` in `openclaw.json`; OpenClaw passes it to the script as `YOUTUBE_API_KEY`.
+- OpenClaw's secret filter blocks `YOUTUBE_CLIENT_SECRET` in `skills.entries.*.env`, so keep the OAuth client in `config.json`.
+- In OpenClaw's Docker sandbox, commands run with `HOME` set to the sandbox workspace and don't receive `skills.entries` keys. Put `config.json` in `.openclaw/youtube/` inside that workspace, or point `YOUTUBE_SKILL_CONFIG_DIR` somewhere else.
 
 ## 1. Enable the API
 
@@ -63,9 +94,11 @@ In OpenClaw you can also set the API key as `skills.entries.youtube-playlist-man
 python3 scripts/youtube.py auth
 ```
 
-This opens a browser for Google consent; a short-lived server on `http://127.0.0.1:8923` catches the redirect (pick another port with `--port`). Tokens are saved to `~/.openclaw/youtube/tokens.json` and refresh automatically.
+This opens a browser for Google consent; a short-lived server on `http://127.0.0.1:8923` catches the redirect (pick another port with `--port`). Tokens are saved to `tokens.json` in the config folder and refresh automatically.
 
-### Headless Machines
+### Headless Machines and Cloud Agents
+
+Agents in the cloud, in containers or on other machines without a browser should always use this flow:
 
 ```bash
 python3 scripts/youtube.py auth --manual
@@ -85,4 +118,4 @@ Or forward the port (`ssh -L 8923:127.0.0.1:8923 <host>`) and run plain `auth` o
 python3 scripts/youtube.py logout
 ```
 
-This revokes the sign-in at Google and deletes `~/.openclaw/youtube/tokens.json`. You can also remove the app's access at <https://myaccount.google.com/permissions>.
+This revokes the sign-in at Google and deletes `tokens.json` from the config folder. You can also remove the app's access at <https://myaccount.google.com/permissions>.

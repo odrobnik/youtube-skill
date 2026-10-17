@@ -1,14 +1,15 @@
 ---
 name: youtube-playlist-manager
-description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored in ~/.openclaw/youtube/, refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
+description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored locally (by default in ~/.openclaw/youtube/), refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
 summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
 version: 1.2.0
 homepage: https://github.com/odrobnik/youtube-skill
+compatibility: "Python 3.8+ (standard library only) and network access to Google APIs. Works in OpenClaw, Claude Code, Codex and other agents that read SKILL.md."
 permissions:
   - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1 (port 8923 by default, or the one passed to auth --port)"
-  - "file_read: ~/.openclaw/youtube/config.json, tokens.json and pending-auth.json"
-  - "file_write: ~/.openclaw/youtube/tokens.json and pending-auth.json (owner-only)"
-  - "env: YOUTUBE_API_KEY, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET"
+  - "file_read: config.json, tokens.json and pending-auth.json in the skill's config folder (~/.openclaw/youtube/ by default, or YOUTUBE_SKILL_CONFIG_DIR, or OPENCLAW_STATE_DIR/youtube)"
+  - "file_write: tokens.json and pending-auth.json in that config folder (owner-only)"
+  - "env: YOUTUBE_API_KEY, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_SKILL_CONFIG_DIR, OPENCLAW_STATE_DIR"
 metadata:
   openclaw:
     emoji: "🎬"
@@ -19,20 +20,28 @@ metadata:
     envVars:
       - name: YOUTUBE_API_KEY
         required: false
-        description: "YouTube Data API v3 key for search (or api_key in ~/.openclaw/youtube/config.json)."
+        description: "YouTube Data API v3 key for search (or api_key in config.json)."
       - name: YOUTUBE_CLIENT_ID
         required: false
         description: "OAuth client ID (Desktop app) for playlist commands (or client_id in config.json)."
       - name: YOUTUBE_CLIENT_SECRET
         required: false
         description: "OAuth client secret for playlist commands (or client_secret in config.json)."
+      - name: YOUTUBE_SKILL_CONFIG_DIR
+        required: false
+        description: "Folder for config.json and the stored sign-in (default ~/.openclaw/youtube/)."
+      - name: OPENCLAW_STATE_DIR
+        required: false
+        description: "OpenClaw's state folder; when set, the default config folder is OPENCLAW_STATE_DIR/youtube."
 ---
 
 # YouTube Playlist Manager
 
 Search YouTube and manage your own playlists through the YouTube Data API v3.
 
-**Entry point:** `{baseDir}/scripts/youtube.py` (Python 3 standard library only)
+**Entry point:** `scripts/youtube.py` in this skill's folder (Python 3 standard library only)
+
+Paths in this file are relative to the skill's folder, the one that contains this SKILL.md. Run the script by its full path, for example `python3 /path/to/youtube-playlist-manager/scripts/youtube.py list`, or from inside that folder. OpenClaw's docs call this folder `{baseDir}`; Claude Code also provides it as `${CLAUDE_SKILL_DIR}`.
 
 ## When to use
 
@@ -44,31 +53,31 @@ Search YouTube and manage your own playlists through the YouTube Data API v3.
 
 See [SETUP.md](SETUP.md). Search works with just an API key, without signing in. Everything that touches the user's playlists (`list`, `videos`, `create`, `edit`, `delete`, `add`, `remove`) needs a one-time Google OAuth sign-in with `auth`.
 
-Credentials are read from `~/.openclaw/youtube/config.json`; the env vars `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` override it. The sign-in is stored in `~/.openclaw/youtube/tokens.json`, readable by the owner only. Never print or share these files.
+Credentials are read from `config.json` in the config folder: `~/.openclaw/youtube/` by default, `$OPENCLAW_STATE_DIR/youtube` when OpenClaw's state folder is moved, or any folder named by `YOUTUBE_SKILL_CONFIG_DIR`. The env vars `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` override it. The sign-in is stored in `tokens.json` in the same folder, readable by the owner only. Never print or share these files.
 
 ## Commands
 
 ```bash
 # Search (uses the API key, or the sign-in if no key is set)
-python3 {baseDir}/scripts/youtube.py search "query" [--max 1-50] [--order relevance|date|viewCount|rating|title|videoCount]
-python3 {baseDir}/scripts/youtube.py search "query" [--duration short|medium|long] [--hd] [--after YYYY-MM-DD] [--channel CHANNEL_ID]
+python3 scripts/youtube.py search "query" [--max 1-50] [--order relevance|date|viewCount|rating|title|videoCount]
+python3 scripts/youtube.py search "query" [--duration short|medium|long] [--hd] [--after YYYY-MM-DD] [--channel CHANNEL_ID]
 
 # Sign in (one-time) and out
-python3 {baseDir}/scripts/youtube.py auth                      # opens a browser, waits for the localhost callback
-python3 {baseDir}/scripts/youtube.py auth --manual             # prints the consent URL and exits
-python3 {baseDir}/scripts/youtube.py auth --code "<redirect address or code>"
-python3 {baseDir}/scripts/youtube.py logout                    # revokes the sign-in at Google, deletes tokens.json
+python3 scripts/youtube.py auth                      # opens a browser, waits for the localhost callback
+python3 scripts/youtube.py auth --manual             # prints the consent URL and exits
+python3 scripts/youtube.py auth --code "<redirect address or code>"
+python3 scripts/youtube.py logout                    # revokes the sign-in at Google, deletes tokens.json
 
 # Playlists
-python3 {baseDir}/scripts/youtube.py list
-python3 {baseDir}/scripts/youtube.py create "Name" [--privacy private|unlisted|public] [--description "..."]
-python3 {baseDir}/scripts/youtube.py edit <playlist_id> [--title "..."] [--description "..."] [--privacy private|unlisted|public]
-python3 {baseDir}/scripts/youtube.py delete <playlist_id> [--yes]
+python3 scripts/youtube.py list
+python3 scripts/youtube.py create "Name" [--privacy private|unlisted|public] [--description "..."]
+python3 scripts/youtube.py edit <playlist_id> [--title "..."] [--description "..."] [--privacy private|unlisted|public]
+python3 scripts/youtube.py delete <playlist_id> [--yes]
 
 # Videos in a playlist
-python3 {baseDir}/scripts/youtube.py videos <playlist_id>      # shows each entry's Item ID
-python3 {baseDir}/scripts/youtube.py add <playlist_id> <video_url_or_id> [more ...]
-python3 {baseDir}/scripts/youtube.py remove <playlist_item_id> [more ...] [--yes]
+python3 scripts/youtube.py videos <playlist_id>      # shows each entry's Item ID
+python3 scripts/youtube.py add <playlist_id> <video_url_or_id> [more ...]
+python3 scripts/youtube.py remove <playlist_item_id> [more ...] [--yes]
 ```
 
 ## JSON output (`--json`)
@@ -94,9 +103,9 @@ Add `--json` before or after the subcommand (`youtube.py --json list` = `youtube
 | `logout` | `{ok, revoked, tokens_deleted, was_signed_in}` |
 
 ```bash
-python3 {baseDir}/scripts/youtube.py --json search "lego technic" --max 3 | jq -r '.[] | "\(.title)\t\(.url)"'
-python3 {baseDir}/scripts/youtube.py list --json | jq -r '.[] | select(.privacy == "private") | .id'
-python3 {baseDir}/scripts/youtube.py videos <playlist_id> --json | jq -r '.[].item_id'
+python3 scripts/youtube.py --json search "lego technic" --max 3 | jq -r '.[] | "\(.title)\t\(.url)"'
+python3 scripts/youtube.py list --json | jq -r '.[] | select(.privacy == "private") | .id'
+python3 scripts/youtube.py videos <playlist_id> --json | jq -r '.[].item_id'
 ```
 
 ## How to use it
@@ -107,13 +116,13 @@ python3 {baseDir}/scripts/youtube.py videos <playlist_id> --json | jq -r '.[].it
 - `add` accepts watch, `youtu.be`, Shorts, embed and live URLs as well as bare 11-character video IDs.
 - Search returns the most relevant matches. Use `--order date` only when the user wants the newest uploads.
 - YouTube shows changes after a few seconds. `list` right after a change can still show the old state, and two quick `edit`s of the same playlist can undo each other, so leave about 10 seconds between them.
-- **Signing in needs the user.** Run `auth --manual`, send the user the URL, and ask for the address their browser shows afterwards. It starts with `http://127.0.0.1:8923/` (or the port passed with `--port`), and that page not loading is expected. Then run `auth --code "<that address>"`. On the user's own computer, plain `auth` opens the browser and finishes by itself.
+- **Signing in needs the user.** In cloud, container or other headless sessions always use `auth --manual`: send the user the URL and ask for the address their browser shows afterwards. It starts with `http://127.0.0.1:8923/` (or the port passed with `--port`), and that page not loading is expected. Then run `auth --code "<that address>"`. On the user's own computer, plain `auth` opens the browser and finishes by itself.
 - If a command reports that the sign-in expired or was revoked, sign in again. If that happens every 7 days, point the user to the "Publish app" step in SETUP.md.
 
 ## Security and permissions
 
 - **Network:** only Google. `www.googleapis.com` for the YouTube Data API; `accounts.google.com` and `oauth2.googleapis.com` for signing in and out.
-- **Files:** reads `~/.openclaw/youtube/config.json`; reads and writes `tokens.json` and, during sign-in, `pending-auth.json` in the same folder, all owner-only. Nothing else on disk.
+- **Files:** reads `config.json` from the config folder (default `~/.openclaw/youtube/`); reads and writes `tokens.json` and, during sign-in, `pending-auth.json` there, all owner-only. Nothing else on disk.
 - **Local:** `auth` opens the browser and listens on `127.0.0.1` for up to 5 minutes, on port 8923 unless `--port` picks another. Apart from that, the script starts no other programs and downloads no code.
 - **Sign-in lifetime:** the stored sign-in keeps working until it is revoked. `logout` revokes it at Google and deletes `tokens.json`.
 - **Declared scope:** the `permissions` list in the frontmatter states this same scope for reviewers and scanners. Hosts don't enforce it; it describes what the script does.
