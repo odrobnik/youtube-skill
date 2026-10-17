@@ -3,6 +3,7 @@
 
 Usage:
     python3 youtube.py search "query" [--max N] [--order relevance|date|...]
+    python3 youtube.py video VIDEO_URL_OR_ID [...]  # Get full details of one or more videos
     python3 youtube.py auth [--manual] [--port N]  # One-time Google sign-in
     python3 youtube.py auth --code CODE_OR_URL     # Finish a manual sign-in
     python3 youtube.py list                        # List your playlists
@@ -761,6 +762,156 @@ def cmd_edit(args):
     emit({"ok": True, "playlist": _playlist_json(result)})
 
 
+def cmd_video(args):
+    """Fetch full details of one or more videos."""
+    video_ids = []
+    for url_or_id in args.videos:
+        vid = extract_video_id(url_or_id)
+        if not vid:
+            if JSON_MODE:
+                _write_json({"error": {"message": f"Not a YouTube video URL or ID: {url_or_id}",
+                                      "code": "invalid_video"}})
+            print(f"ERROR: Not a YouTube video URL or ID: {url_or_id}", file=sys.stderr)
+            sys.exit(1)
+        video_ids.append(vid)
+
+    # API key if configured, otherwise the OAuth sign-in (same quota either way)
+    cfg = _load_config()
+    params = {"part": "snippet,contentDetails,statistics", "id": ",".join(video_ids)}
+    
+    if cfg["api_key"]:
+        url = _api_url("videos", dict(params, key=cfg["api_key"]))
+        data = _open_json(urllib.request.Request(url))
+    elif TOKEN_FILE.exists():
+        data = api_request("GET", _api_url("videos", params), load_tokens())
+    else:
+        _fail(code="missing_credentials", message="video needs an API key (YOUTUBE_API_KEY or api_key in "
+              f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
+
+    items = data.get("items", [])
+    found_ids = {item["id"] for item in items}
+    not_found = [vid for vid in video_ids if vid not in found_ids]
+    
+    results = []
+    for item in items:
+        s = item.get("snippet", {})
+        cd = item.get("contentDetails", {})
+        stats = item.get("statistics", {})
+        
+        # Decode HTML entities in title and description
+        title = html.unescape(s.get("title", ""))
+        description = html.unescape(s.get("description", ""))
+        
+        # Parse ISO 8601 duration (PT1H2M3S) to human-readable
+        duration_iso = cd.get("duration", "")
+        duration_seconds = _parse_duration(duration_iso)
+        duration_str = _format_duration(duration_seconds)
+        
+        # Extract chapters from description if present
+        chapters = _extract_chapters(description)
+        
+        vid = item["id"]
+        results.append({
+            "video_id": vid,
+            "title": title,
+            "description": description,
+            "channel": s.get("channelTitle", ""),
+            "channel_id": s.get("channelId"),
+            "published_at": s.get("publishedAt"),
+            "duration": duration_str,
+            "duration_seconds": duration_seconds,
+            "view_count": stats.get("viewCount"),
+            "like_count": stats.get("likeCount"),
+            "comment_count": stats.get("commentCount"),
+            "url": f"https://youtube.com/watch?v={vid}",
+            "chapters": chapters if chapters else None,
+        })
+    
+    for vid in not_found:
+        results.append({
+            "video_id": vid,
+            "found": False,
+            "error": {"message": "Video not found", "code": "videoNotFound"},
+        })
+    
+    emit(results)
+    
+    # Exit with error if any videos not found
+    if not_found:
+        sys.exit(1)
+    
+    # Text output
+    for result in results:
+        if not result.get("found", True):
+            print(f"❌ Video not found: {result['video_id']}\n")
+            continue
+        
+        print(f"📺 {result['title']}")
+        print(f"   Channel: {result['channel']}")
+        print(f"   Published: {result['published_at'][:10]}")
+        print(f"   Duration: {result['duration']}")
+        if result.get("view_count"):
+            # view_count is a string from the API
+            try:
+                print(f"   Views: {int(result['view_count']):,}")
+            except (ValueError, TypeError):
+                print(f"   Views: {result['view_count']}")
+        print(f"   URL: {result['url']}")
+        print()
+        print("Description:")
+        print(result['description'])
+        
+        if result.get('chapters'):
+            print()
+            print("Chapters:")
+            for ch in result['chapters']:
+                print(f"  {ch['timestamp']} - {ch['title']}")
+        
+        print()
+        print("─" * 80)
+        print()
+
+
+def _parse_duration(duration_iso: str) -> int:
+    """Parse ISO 8601 duration (PT1H2M3S) to seconds."""
+    if not duration_iso:
+        return 0
+    match = re.match(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", duration_iso)
+    if not match:
+        return 0
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = int(match.group(3) or 0)
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _format_duration(seconds: int) -> str:
+    """Format seconds as H:MM:SS or M:SS."""
+    if seconds == 0:
+        return "0:00"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def _extract_chapters(description: str) -> list:
+    """Extract chapter timestamps from description (e.g., '0:00 Intro', '1:23 Chapter 2')."""
+    if not description:
+        return []
+    chapters = []
+    # Match timestamps: 0:00, 1:23, 1:23:45 at start of line or after whitespace
+    pattern = r"(?:^|\n)\s*(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+?)(?=\n|$)"
+    for match in re.finditer(pattern, description, re.MULTILINE):
+        timestamp = match.group(1).strip()
+        title = match.group(2).strip()
+        if title:  # Only add if there's a title
+            chapters.append({"timestamp": timestamp, "title": title})
+    return chapters if len(chapters) > 1 else []  # Only return if 2+ chapters found
+
+
 def cmd_search(args):
     params = {
         "part": "snippet",
@@ -913,6 +1064,10 @@ def main():
     p_search.add_argument("--after", help="Published after (YYYY-MM-DD)")
     p_search.add_argument("--channel", help="Filter by Channel ID")
 
+    p_video = sub.add_parser("video", help="Get full details of one or more videos")
+    p_video.add_argument("videos", nargs="+", metavar="VIDEO_URL_OR_ID",
+                         help="Video URLs or IDs (watch, youtu.be, Shorts, embed, live, or bare 11-char ID)")
+
     global JSON_MODE, _JSON_OUT
     _JSON_OUT = sys.stdout
     argv = sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]
@@ -935,7 +1090,7 @@ def main():
         "auth": cmd_auth, "create": cmd_create, "list": cmd_list,
         "add": cmd_add, "videos": cmd_videos, "remove": cmd_remove,
         "delete": cmd_delete, "edit": cmd_edit, "search": cmd_search,
-        "logout": cmd_logout,
+        "video": cmd_video, "logout": cmd_logout,
     }
     try:
         cmds[args.command](args)

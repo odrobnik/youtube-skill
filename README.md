@@ -1,6 +1,6 @@
 # youtube-skill
 
-🎬 Search YouTube and manage your playlists (create, rename, delete, add and remove videos) via the [YouTube Data API v3](https://developers.google.com/youtube/v3). Search works with just an API key; managing playlists needs a one-time Google OAuth sign-in. Python 3 standard library only.
+🎬 Search YouTube, get full video details (including complete descriptions with show notes, chapters, and links), and manage your playlists (create, rename, delete, add and remove videos) via the [YouTube Data API v3](https://developers.google.com/youtube/v3). Search and video details work with just an API key; managing playlists needs a one-time Google OAuth sign-in. Python 3 standard library only.
 
 An agent skill for [OpenClaw](https://openclaw.ai) (published on ClawHub as `youtube-playlist-manager`), Claude Code, Codex and other agents that read `SKILL.md`.
 
@@ -21,6 +21,10 @@ Then set up Google credentials as described in [SETUP.md](SETUP.md); [.env.examp
 ```bash
 # Search (needs YOUTUBE_API_KEY, or config.json in ~/.openclaw/youtube/ or $YOUTUBE_SKILL_CONFIG_DIR)
 python3 scripts/youtube.py search "lego technic review" --max 5
+
+# Get full video details (complete description, chapters, stats)
+python3 scripts/youtube.py video "https://youtu.be/VIDEO_ID"
+python3 scripts/youtube.py video --json VIDEO_ID | jq -r '.[0].description'
 
 # Sign in once for playlist commands (needs an OAuth Desktop client, see SETUP.md)
 python3 scripts/youtube.py auth

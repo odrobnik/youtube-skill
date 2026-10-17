@@ -1,8 +1,8 @@
 ---
 name: youtube-playlist-manager
-description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored locally (by default in ~/.openclaw/youtube/), refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
-summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
-version: 1.2.3
+description: "Search YouTube, get full video details, and manage the user's own YouTube playlists via the YouTube Data API v3. Search and video details work with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored locally (by default in ~/.openclaw/youtube/), refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube, get details of a video, or to view or change their YouTube playlists."
+summary: "YouTube search, video details (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
+version: 1.3.0
 homepage: https://github.com/odrobnik/youtube-skill
 compatibility: "Python 3.8+ (standard library only) and network access to Google APIs. Works in OpenClaw, Claude Code, Codex and other agents that read SKILL.md."
 permissions:
@@ -45,9 +45,10 @@ Search YouTube and manage your own playlists through the YouTube Data API v3.
 
 ## When to use
 
-- The user explicitly asks to search YouTube, or to see or change their own YouTube playlists.
+- The user explicitly asks to search YouTube, get details of a YouTube video (especially when they share a video link and want to read its full description, show notes, or chapters), or to see or change their own YouTube playlists.
+- Use `video` command when you need the full, untruncated description of a video (for reading links, sponsors, chapters, cited papers, etc.) — `search` and `videos` only return truncated snippets.
 - Not for general questions about videos, other video sites, downloading videos, or transcripts.
-- `search`, `list` and `videos` only read. `create`, `edit`, `add`, `remove` and `delete` change the user's YouTube account: run them only for a change the user asked for.
+- `search`, `video`, `list` and `videos` only read. `create`, `edit`, `add`, `remove` and `delete` change the user's YouTube account: run them only for a change the user asked for.
 
 ## Setup
 
@@ -61,6 +62,9 @@ Credentials are read from config.json in the config folder: `~/.openclaw/youtube
 # Search (uses the API key, or the sign-in if no key is set)
 python3 {baseDir}/scripts/youtube.py search "query" [--max 1-50] [--order relevance|date|viewCount|rating|title|videoCount]
 python3 {baseDir}/scripts/youtube.py search "query" [--duration short|medium|long] [--hd] [--after YYYY-MM-DD] [--channel CHANNEL_ID]
+
+# Get full video details (uses the API key, or the sign-in if no key is set)
+python3 {baseDir}/scripts/youtube.py video VIDEO_URL_OR_ID [more ...]  # accepts watch, youtu.be, Shorts, embed, live, or bare ID
 
 # Sign in (one-time) and out
 python3 {baseDir}/scripts/youtube.py auth                      # opens a browser, waits for the localhost callback
@@ -92,6 +96,7 @@ Add `--json` before or after the subcommand (`youtube.py --json list` = `youtube
 | Command | JSON shape |
 |---|---|
 | `search` | `[{id, video_id, title, description, channel, channel_id, published_at, url}]` |
+| `video` | `[{video_id, title, description, channel, channel_id, published_at, duration, duration_seconds, view_count, like_count, comment_count, url, chapters?, found?, error?}]` — full untruncated description; chapters array when detected |
 | `list` | `[{id, title, description, privacy, item_count, channel, channel_id, published_at, url}]` |
 | `videos` | `[{item_id, video_id, position, title, description, channel, channel_id, published_at, playlist_id, url}]` |
 | `create`, `edit` | `{ok, playlist: {...same as list...}}` |
@@ -111,6 +116,8 @@ python3 {baseDir}/scripts/youtube.py videos PLAYLIST_ID --json | jq -r '.[].item
 ## How to use it
 
 - **`delete` and `remove` are permanent and need `--yes`.** Run them without `--yes` first: they list exactly what would go, change nothing, and exit with status 3. Show that list to the user, and only after a clear yes run the same command with `--yes`.
+- **Use `video` to read full descriptions** when the user shares a YouTube link and wants to know details, links, show notes, chapters, sponsors, or cited papers. `search` and `videos` only return truncated snippets.
+- `video` accepts watch, short youtu.be, Shorts, embed, live URLs, and bare 11-character video IDs (same formats as `add`). Can fetch multiple videos in one call.
 - New playlists are **private** unless the user asks for something else.
 - `remove` takes the **Item ID** shown by `videos`, not the video ID.
 - `add` accepts watch, short youtu.be, Shorts, embed and live URLs as well as bare 11-character video IDs.
@@ -134,6 +141,7 @@ Each Google Cloud project gets 10,000 units a day by default, reset at midnight 
 | Command | Cost |
 |---|---|
 | `search` | 100 units (about 100 searches a day) |
+| `video` | 1 unit per request (can fetch up to 50 videos in one call) |
 | `create`, `edit`, `delete` | 50 units per playlist |
 | `add`, `remove` | 50 units per video |
 | `list`, `videos`, previews | 1 unit per 50 entries |
