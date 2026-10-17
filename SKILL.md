@@ -5,7 +5,7 @@ summary: "YouTube search (API key) and playlist management (Google OAuth sign-in
 version: 1.1.1
 homepage: https://github.com/odrobnik/youtube-skill
 permissions:
-  - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1:8923"
+  - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1 (port 8923 by default, or the one passed to auth --port)"
   - "file_read: ~/.openclaw/youtube/config.json, tokens.json and pending-auth.json"
   - "file_write: ~/.openclaw/youtube/tokens.json and pending-auth.json (owner-only)"
   - "env: YOUTUBE_API_KEY, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET"
@@ -79,15 +79,16 @@ python3 {baseDir}/scripts/youtube.py remove <playlist_item_id> [more ...] [--yes
 - `add` accepts watch, `youtu.be`, Shorts, embed and live URLs as well as bare 11-character video IDs.
 - Search returns the most relevant matches. Use `--order date` only when the user wants the newest uploads.
 - YouTube shows changes after a few seconds. `list` right after a change can still show the old state, and two quick `edit`s of the same playlist can undo each other, so leave about 10 seconds between them.
-- **Signing in needs the user.** Run `auth --manual`, send the user the URL, and ask for the address their browser shows afterwards. It starts with `http://127.0.0.1:8923/`, and that page not loading is expected. Then run `auth --code "<that address>"`. On the user's own computer, plain `auth` opens the browser and finishes by itself.
+- **Signing in needs the user.** Run `auth --manual`, send the user the URL, and ask for the address their browser shows afterwards. It starts with `http://127.0.0.1:8923/` (or the port passed with `--port`), and that page not loading is expected. Then run `auth --code "<that address>"`. On the user's own computer, plain `auth` opens the browser and finishes by itself.
 - If a command reports that the sign-in expired or was revoked, sign in again. If that happens every 7 days, point the user to the "Publish app" step in SETUP.md.
 
 ## Security and permissions
 
 - **Network:** only Google. `www.googleapis.com` for the YouTube Data API; `accounts.google.com` and `oauth2.googleapis.com` for signing in and out.
 - **Files:** reads `~/.openclaw/youtube/config.json`; reads and writes `tokens.json` and, during sign-in, `pending-auth.json` in the same folder, all owner-only. Nothing else on disk.
-- **Local:** `auth` opens the browser and listens on `127.0.0.1:8923` for up to 5 minutes. Apart from that, the script starts no other programs and downloads no code.
+- **Local:** `auth` opens the browser and listens on `127.0.0.1` for up to 5 minutes, on port 8923 unless `--port` picks another. Apart from that, the script starts no other programs and downloads no code.
 - **Sign-in lifetime:** the stored sign-in keeps working until it is revoked. `logout` revokes it at Google and deletes `tokens.json`.
+- **Declared scope:** the `permissions` list in the frontmatter states this same scope for reviewers and scanners. Hosts don't enforce it; it describes what the script does.
 
 ## Quota
 
