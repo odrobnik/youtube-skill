@@ -836,14 +836,10 @@ def cmd_video(args):
     
     emit(results)
     
-    # Exit with error if any videos not found
-    if not_found:
-        sys.exit(1)
-    
     # Text output
     for result in results:
         if not result.get("found", True):
-            print(f"❌ Video not found: {result['video_id']}\n")
+            print(f"❌ Video not found: {result['video_id']}")
             continue
         
         print(f"📺 {result['title']}")
@@ -870,6 +866,11 @@ def cmd_video(args):
         print()
         print("─" * 80)
         print()
+    
+    # Flush JSON output before exiting with error
+    if not_found:
+        _flush_result()
+        sys.exit(1)
 
 
 def _parse_duration(duration_iso: str) -> int:

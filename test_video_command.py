@@ -256,6 +256,107 @@ Check out my website: https://example.com"""
                 youtube.cmd_video(args)
             self.assertEqual(cm.exception.code, 1)
 
+    @patch('youtube._load_config')
+    @patch('youtube._open_json')
+    def test_video_mixed_found_not_found(self, mock_open_json, mock_load_config):
+        """Test video command with mix of found and not-found videos."""
+        mock_load_config.return_value = {
+            "api_key": "test_api_key",
+            "client_id": "",
+            "client_secret": ""
+        }
+
+        # Mock API response with only one video (second is not found)
+        mock_open_json.return_value = {
+            "items": [
+                {
+                    "id": "dQw4w9WgXcQ",
+                    "snippet": {
+                        "title": "Found Video",
+                        "description": "This video exists",
+                        "channelTitle": "Test Channel",
+                        "channelId": "UCtest",
+                        "publishedAt": "2024-01-01T10:00:00Z"
+                    },
+                    "contentDetails": {"duration": "PT3M30S"},
+                    "statistics": {"viewCount": "1000000"}
+                }
+            ]
+        }
+
+        args = Mock()
+        args.videos = ["dQw4w9WgXcQ", "notfound123"]
+
+        with patch('builtins.print'):
+            with self.assertRaises(SystemExit) as cm:
+                youtube.cmd_video(args)
+            # Should exit with error because one video not found
+            self.assertEqual(cm.exception.code, 1)
+
+        # Verify both videos are in result (found and not-found)
+        self.assertIsNotNone(youtube._RESULT)
+        self.assertEqual(len(youtube._RESULT), 2)
+        
+        # First should be found
+        self.assertEqual(youtube._RESULT[0]["video_id"], "dQw4w9WgXcQ")
+        self.assertEqual(youtube._RESULT[0]["title"], "Found Video")
+        self.assertNotIn("found", youtube._RESULT[0])  # found=True is implicit
+        
+        # Second should be not-found with error
+        self.assertEqual(youtube._RESULT[1]["video_id"], "notfound123")
+        self.assertEqual(youtube._RESULT[1]["found"], False)
+        self.assertIn("error", youtube._RESULT[1])
+        self.assertEqual(youtube._RESULT[1]["error"]["code"], "videoNotFound")
+
+    @patch('youtube._load_config')
+    @patch('youtube._open_json')
+    def test_global_json_mode_flag(self, mock_open_json, mock_load_config):
+        """Test that JSON_MODE affects output behavior."""
+        mock_load_config.return_value = {
+            "api_key": "test_api_key",
+            "client_id": "",
+            "client_secret": ""
+        }
+
+        mock_open_json.return_value = {
+            "items": [
+                {
+                    "id": "dQw4w9WgXcQ",
+                    "snippet": {
+                        "title": "Test Video",
+                        "description": "Test description",
+                        "channelTitle": "Channel",
+                        "channelId": "UC123",
+                        "publishedAt": "2024-01-01T10:00:00Z"
+                    },
+                    "contentDetails": {"duration": "PT1M"},
+                    "statistics": {}
+                }
+            ]
+        }
+
+        args = Mock()
+        args.videos = ["dQw4w9WgXcQ"]
+
+        # Test in JSON mode
+        youtube.JSON_MODE = True
+        from io import StringIO
+        json_out = StringIO()
+        youtube._JSON_OUT = json_out
+
+        with patch('sys.stdout', StringIO()):
+            youtube.cmd_video(args)
+            # Manually flush since we're not going through main()
+            youtube._flush_result()
+
+        # Verify JSON was written
+        json_output = json_out.getvalue()
+        self.assertTrue(len(json_output) > 0)
+        import json
+        result = json.loads(json_output)
+        self.assertIsInstance(result, list)
+        self.assertEqual(result[0]["video_id"], "dQw4w9WgXcQ")
+
 
 if __name__ == "__main__":
     print("Running tests for video command...\n")
