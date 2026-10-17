@@ -41,7 +41,7 @@ Search YouTube and manage your own playlists through the YouTube Data API v3.
 
 **Entry point:** `{baseDir}/scripts/youtube.py` (Python 3 standard library only)
 
-`{baseDir}` is this skill's folder, the one that contains this SKILL.md. Commands run in the agent's workspace, so use the folder's full path: OpenClaw's agent resolves `{baseDir}` itself, Claude Code provides it as `${CLAUDE_SKILL_DIR}`, and other agents can take it from where they found this file.
+`{baseDir}` stands for this skill's folder, the one that contains this SKILL.md. Replace it with that folder's full path in every command, because commands run in the agent's workspace. In Claude Code the folder is `${CLAUDE_SKILL_DIR}`, which Claude Code fills in here; OpenClaw's agent resolves `{baseDir}` itself; other agents use the folder where they found this file.
 
 ## When to use
 
