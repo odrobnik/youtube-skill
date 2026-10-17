@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""YouTube search and playlist management via the YouTube Data API v3.
+"""YouTube search, video details and playlist management via the YouTube Data API v3.
 
 Usage:
     python3 youtube.py search "query" [--max N] [--order relevance|date|...]
-    python3 youtube.py video VIDEO_URL_OR_ID [...]  # Get full details of one or more videos
+    python3 youtube.py video VIDEO_URL_OR_ID [...]  # Full description, duration, counts, chapters
     python3 youtube.py auth [--manual] [--port N]  # One-time Google sign-in
     python3 youtube.py auth --code CODE_OR_URL     # Finish a manual sign-in
     python3 youtube.py list                        # List your playlists
@@ -85,6 +85,10 @@ HTTP_TIMEOUT = 30
 NEEDS_CONFIRMATION_EXIT = 3  # a delete or remove run without --yes only previews, then exits with this
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# videos.list durations: PT1H2M3S, and P1DT2H3M4S once a video is a day or longer
+DURATION_RE = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$")
+# A chapter line in a description: "0:00 Intro", "1:02:03 - Outro", "(12:34) Demo"
+CHAPTER_RE = re.compile(r"^\s*[(\[]?((?:\d{1,2}:)?\d{1,2}:\d{2})[)\]]?\s*[-–—:|]?\s+(\S.*?)\s*$")
 # playlistItems.insert errors that concern one video; anything else stops `add`
 VIDEO_ERRORS = {"videoNotFound", "invalidResourceId"}
 
@@ -632,8 +636,9 @@ def cmd_remove(args):
         for item in api_request("GET", _api_url("playlistItems", params), tokens).get("items", []):
             found[item["id"]] = item["snippet"]
     titles = _playlist_titles(sorted({s["playlistId"] for s in found.values()}), tokens)
-    print(f"{'Removing' if args.yes else 'Would remove'} {len(args.item_ids)} playlist entr"
-          f"{'y' if len(args.item_ids) == 1 else 'ies'}:")
+    n = len(args.item_ids)
+    entries_label = f"{n} playlist entr{'y' if n == 1 else 'ies'}"
+    print(f"Removing {entries_label}:" if args.yes else f"Would remove {entries_label}:")
     for item_id in args.item_ids:
         s = found.get(item_id)
         if s:
@@ -675,7 +680,8 @@ def cmd_delete(args):
                  f"{p['status']['privacyStatus']})")
     else:
         label = "unknown playlist (not found, or not visible yet)"
-    print(f"{'Deleting' if args.yes else 'Would delete'} playlist {label}  [{args.playlist_id}]")
+    print(f"Deleting playlist {label}  [{args.playlist_id}]" if args.yes
+          else f"Would delete playlist {label}  [{args.playlist_id}]")
     if not args.yes:
         _needs_confirmation("deleted", {"playlist": pj})
 
@@ -762,155 +768,111 @@ def cmd_edit(args):
     emit({"ok": True, "playlist": _playlist_json(result)})
 
 
-def cmd_video(args):
-    """Fetch full details of one or more videos."""
-    video_ids = []
-    for url_or_id in args.videos:
-        vid = extract_video_id(url_or_id)
-        if not vid:
-            if JSON_MODE:
-                _write_json({"error": {"message": f"Not a YouTube video URL or ID: {url_or_id}",
-                                      "code": "invalid_video"}})
-            print(f"ERROR: Not a YouTube video URL or ID: {url_or_id}", file=sys.stderr)
-            sys.exit(1)
-        video_ids.append(vid)
-
-    # API key if configured, otherwise the OAuth sign-in (same quota either way)
-    cfg = _load_config()
-    params = {"part": "snippet,contentDetails,statistics", "id": ",".join(video_ids)}
-    
-    if cfg["api_key"]:
-        url = _api_url("videos", dict(params, key=cfg["api_key"]))
-        data = _open_json(urllib.request.Request(url))
-    elif TOKEN_FILE.exists():
-        data = api_request("GET", _api_url("videos", params), load_tokens())
-    else:
-        _fail(code="missing_credentials", message="video needs an API key (YOUTUBE_API_KEY or api_key in "
-              f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
-
-    items = data.get("items", [])
-    found_ids = {item["id"] for item in items}
-    not_found = [vid for vid in video_ids if vid not in found_ids]
-    
-    results = []
-    for item in items:
-        s = item.get("snippet", {})
-        cd = item.get("contentDetails", {})
-        stats = item.get("statistics", {})
-        
-        # Decode HTML entities in title and description
-        title = html.unescape(s.get("title", ""))
-        description = html.unescape(s.get("description", ""))
-        
-        # Parse ISO 8601 duration (PT1H2M3S) to human-readable
-        duration_iso = cd.get("duration", "")
-        duration_seconds = _parse_duration(duration_iso)
-        duration_str = _format_duration(duration_seconds)
-        
-        # Extract chapters from description if present
-        chapters = _extract_chapters(description)
-        
-        vid = item["id"]
-        results.append({
-            "video_id": vid,
-            "title": title,
-            "description": description,
-            "channel": s.get("channelTitle", ""),
-            "channel_id": s.get("channelId"),
-            "published_at": s.get("publishedAt"),
-            "duration": duration_str,
-            "duration_seconds": duration_seconds,
-            "view_count": stats.get("viewCount"),
-            "like_count": stats.get("likeCount"),
-            "comment_count": stats.get("commentCount"),
-            "url": f"https://youtube.com/watch?v={vid}",
-            "chapters": chapters if chapters else None,
-        })
-    
-    for vid in not_found:
-        results.append({
-            "video_id": vid,
-            "found": False,
-            "error": {"message": "Video not found", "code": "videoNotFound"},
-        })
-    
-    emit(results)
-    
-    # Text output
-    for result in results:
-        if not result.get("found", True):
-            print(f"❌ Video not found: {result['video_id']}")
-            continue
-        
-        print(f"📺 {result['title']}")
-        print(f"   Channel: {result['channel']}")
-        print(f"   Published: {result['published_at'][:10]}")
-        print(f"   Duration: {result['duration']}")
-        if result.get("view_count"):
-            # view_count is a string from the API
-            try:
-                print(f"   Views: {int(result['view_count']):,}")
-            except (ValueError, TypeError):
-                print(f"   Views: {result['view_count']}")
-        print(f"   URL: {result['url']}")
-        print()
-        print("Description:")
-        print(result['description'])
-        
-        if result.get('chapters'):
-            print()
-            print("Chapters:")
-            for ch in result['chapters']:
-                print(f"  {ch['timestamp']} - {ch['title']}")
-        
-        print()
-        print("─" * 80)
-        print()
-    
-    # Flush JSON output before exiting with error
-    if not_found:
-        _flush_result()
-        sys.exit(1)
-
-
-def _parse_duration(duration_iso: str) -> int:
-    """Parse ISO 8601 duration (PT1H2M3S) to seconds."""
-    if not duration_iso:
-        return 0
-    match = re.match(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", duration_iso)
-    if not match:
-        return 0
-    hours = int(match.group(1) or 0)
-    minutes = int(match.group(2) or 0)
-    seconds = int(match.group(3) or 0)
-    return hours * 3600 + minutes * 60 + seconds
+def _duration_seconds(iso: str) -> Optional[int]:
+    m = DURATION_RE.match(iso or "")
+    if not m or not any(m.groups()):
+        return None
+    days, hours, minutes, seconds = (int(g or 0) for g in m.groups())
+    return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
 
 
 def _format_duration(seconds: int) -> str:
-    """Format seconds as H:MM:SS or M:SS."""
-    if seconds == 0:
-        return "0:00"
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-    if hours > 0:
-        return f"{hours}:{minutes:02d}:{secs:02d}"
-    return f"{minutes}:{secs:02d}"
+    """H:MM:SS, or M:SS under an hour."""
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
 
 
-def _extract_chapters(description: str) -> list:
-    """Extract chapter timestamps from description (e.g., '0:00 Intro', '1:23 Chapter 2')."""
-    if not description:
-        return []
+def _chapters(description: str) -> list:
+    """Chapters as YouTube finds them: timestamped lines from 0:00 on, ascending, at least three."""
     chapters = []
-    # Match timestamps: 0:00, 1:23, 1:23:45 at start of line or after whitespace
-    pattern = r"(?:^|\n)\s*(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+?)(?=\n|$)"
-    for match in re.finditer(pattern, description, re.MULTILINE):
-        timestamp = match.group(1).strip()
-        title = match.group(2).strip()
-        if title:  # Only add if there's a title
-            chapters.append({"timestamp": timestamp, "title": title})
-    return chapters if len(chapters) > 1 else []  # Only return if 2+ chapters found
+    for line in description.splitlines():
+        m = CHAPTER_RE.match(line)
+        if not m:
+            continue
+        start = 0
+        for part in m.group(1).split(":"):
+            start = start * 60 + int(part)
+        if not chapters and start:
+            continue  # the list starts at 0:00
+        if chapters and start <= chapters[-1]["start_seconds"]:
+            break  # a timestamp out of order ends the list
+        chapters.append({"timestamp": m.group(1), "start_seconds": start, "title": m.group(2)})
+    return chapters if len(chapters) >= 3 else []
+
+
+def _count(value) -> Optional[int]:
+    """Statistics arrive as strings; hidden like counts and disabled comments are missing."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _video_json(item: dict) -> dict:
+    s, stats = item.get("snippet", {}), item.get("statistics", {})
+    description = s.get("description", "")  # videos.list sends plain text; only search escapes
+    seconds = _duration_seconds(item.get("contentDetails", {}).get("duration", ""))
+    duration = _format_duration(seconds) if seconds is not None else None
+    if s.get("liveBroadcastContent") in ("live", "upcoming"):  # P0D until the stream is over
+        duration, seconds = s["liveBroadcastContent"], None
+    return {
+        "video_id": item["id"], "title": s.get("title", ""), "description": description,
+        "channel": s.get("channelTitle", ""), "channel_id": s.get("channelId"),
+        "published_at": s.get("publishedAt"), "duration": duration, "duration_seconds": seconds,
+        "view_count": _count(stats.get("viewCount")), "like_count": _count(stats.get("likeCount")),
+        "comment_count": _count(stats.get("commentCount")),
+        "url": f"https://youtube.com/watch?v={item['id']}", "chapters": _chapters(description),
+    }
+
+
+def cmd_video(args):
+    video_ids = []
+    for url_or_id in args.videos:
+        video_id = extract_video_id(url_or_id)
+        if not video_id:
+            _fail(f"Not a YouTube video URL or ID: {url_or_id}", "invalid_video")
+        if video_id not in video_ids:
+            video_ids.append(video_id)
+
+    # API key if configured, otherwise the OAuth sign-in (same quota either way)
+    cfg = _load_config()
+    if not cfg["api_key"] and not TOKEN_FILE.exists():
+        _fail(code="missing_credentials", message="video needs an API key (YOUTUBE_API_KEY or api_key in "
+              f"{CONFIG_FILE}) or a sign-in (youtube.py auth). See SETUP.md.")
+    tokens = None if cfg["api_key"] else load_tokens()
+    found = {}
+    for i in range(0, len(video_ids), 50):  # videos.list takes up to 50 IDs per call
+        params = {"part": "snippet,contentDetails,statistics", "id": ",".join(video_ids[i:i + 50])}
+        if tokens:
+            data = api_request("GET", _api_url("videos", params), tokens)
+        else:
+            data = _open_json(urllib.request.Request(_api_url("videos", dict(params, key=cfg["api_key"]))))
+        found.update((item["id"], item) for item in data.get("items", []))
+
+    results = [_video_json(found[v]) if v in found else
+               {"video_id": v, "found": False,
+                "error": {"message": "Video not found (deleted, private, or a wrong ID)", "code": "videoNotFound"}}
+               for v in video_ids]
+    emit(results)
+    for r in results:
+        if "error" in r:
+            print(f"❌ {r['video_id']}: {r['error']['message']}", file=sys.stderr)
+            continue
+        print(f"📺 {r['title']}")
+        print(f"   Channel: {r['channel']}")
+        print(f"   Published: {(r['published_at'] or '')[:10]}")
+        print(f"   Duration: {r['duration'] or 'unknown'}")
+        if r["view_count"] is not None:
+            print(f"   Views: {r['view_count']:,}")
+        print(f"   URL: {r['url']}")
+        if not JSON_MODE:  # the JSON carries the description; don't repeat it on stderr
+            print(f"\nDescription:\n{r['description'] or '(none)'}\n")
+            print("─" * 80)
+            print()
+    if len(found) < len(video_ids):
+        _flush_result()
+        sys.exit(1)
 
 
 def cmd_search(args):
