@@ -46,7 +46,7 @@ In OpenClaw you can also set the API key as `skills.entries.youtube-playlist-man
 
 ## 2. API Key (Search)
 
-1. **APIs & Services → Credentials → + Create credentials → API key**.
+1. **APIs & Services → Credentials**, open the **+** menu at the top and choose **API key**.
 2. Edit the key and restrict it to **YouTube Data API v3**.
 3. Add it to config.json as `api_key`, or export `YOUTUBE_API_KEY`.
 
@@ -55,7 +55,7 @@ In OpenClaw you can also set the API key as `skills.entries.youtube-playlist-man
 1. Open **Google Auth Platform** (formerly *OAuth consent screen*) and set it up with user type **External**.
 2. Under **Audience**, add your Google account as a **test user**. While the app is in *Testing*, only test users can sign in.
 3. Still under **Audience**, click **Publish app** to move it to *In production*. Google limits sign-ins to apps in Testing to **7 days**, after which every playlist command fails until you sign in again. An unverified app in production is fine for personal use; you click through the "Google hasn't verified this app" warning once.
-4. Under **Clients**, create a client of type **Desktop app** and copy its client ID and secret into config.json (or the env vars).
+4. Under **Clients**, add a client of type **Desktop app** and copy its client ID and secret into config.json (or the env vars).
 
 ## 4. Sign In
 
