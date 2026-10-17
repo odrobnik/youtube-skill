@@ -1,9 +1,14 @@
 ---
 name: youtube-playlist-manager
-description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3: list, create, rename and delete playlists, add and remove videos. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
-summary: "YouTube search and playlist management via the Data API v3."
-version: 1.1.0
+description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored in ~/.openclaw/youtube/, refreshed automatically, and revoked by logout. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
+summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
+version: 1.1.1
 homepage: https://github.com/odrobnik/youtube-skill
+permissions:
+  - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1:8923"
+  - "file_read: ~/.openclaw/youtube/config.json, tokens.json and pending-auth.json"
+  - "file_write: ~/.openclaw/youtube/tokens.json and pending-auth.json (owner-only)"
+  - "env: YOUTUBE_API_KEY, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET"
 metadata:
   openclaw:
     emoji: "🎬"
@@ -37,7 +42,7 @@ Search YouTube and manage your own playlists through the YouTube Data API v3.
 
 ## Setup
 
-See [SETUP.md](SETUP.md). Search needs an API key or a sign-in; playlist commands need a one-time Google sign-in.
+See [SETUP.md](SETUP.md). Search works with just an API key, without signing in. Everything that touches the user's playlists (`list`, `videos`, `create`, `edit`, `delete`, `add`, `remove`) needs a one-time Google OAuth sign-in with `auth`.
 
 Credentials are read from `~/.openclaw/youtube/config.json`; the env vars `YOUTUBE_API_KEY`, `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` override it. The sign-in is stored in `~/.openclaw/youtube/tokens.json`, readable by the owner only. Never print or share these files.
 
