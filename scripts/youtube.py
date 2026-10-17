@@ -783,8 +783,9 @@ def _format_duration(seconds: int) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
 
 
-def _chapters(description: str) -> list:
-    """Chapters as YouTube finds them: timestamped lines from 0:00 on, ascending, at least three."""
+def _chapters(description: str, duration: Optional[int] = None) -> list:
+    """Chapters as YouTube finds them: timestamped lines from 0:00 on, ascending, at least three,
+    each at least 10 seconds long (the last one too, when the video's length is known)."""
     chapters = []
     for line in description.splitlines():
         m = CHAPTER_RE.match(line)
@@ -798,7 +799,10 @@ def _chapters(description: str) -> list:
         if chapters and start <= chapters[-1]["start_seconds"]:
             break  # a timestamp out of order ends the list
         chapters.append({"timestamp": m.group(1), "start_seconds": start, "title": m.group(2)})
-    return chapters if len(chapters) >= 3 else []
+    starts = [c["start_seconds"] for c in chapters] + ([duration] if duration else [])
+    if len(chapters) < 3 or any(b - a < 10 for a, b in zip(starts, starts[1:])):
+        return []  # YouTube shows no chapters for such a list
+    return chapters
 
 
 def _count(value) -> Optional[int]:
@@ -822,7 +826,7 @@ def _video_json(item: dict) -> dict:
         "published_at": s.get("publishedAt"), "duration": duration, "duration_seconds": seconds,
         "view_count": _count(stats.get("viewCount")), "like_count": _count(stats.get("likeCount")),
         "comment_count": _count(stats.get("commentCount")),
-        "url": f"https://youtube.com/watch?v={item['id']}", "chapters": _chapters(description),
+        "url": f"https://youtube.com/watch?v={item['id']}", "chapters": _chapters(description, seconds),
     }
 
 

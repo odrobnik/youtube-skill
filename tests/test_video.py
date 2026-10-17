@@ -190,6 +190,15 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(titles("Doors 19:30 tonight\n12:00 noon\n0:00 A\n0:30 B\n1:00 C"), ["A", "B", "C"])
         self.assertEqual(titles("0:00 A\n0:30 B\n1:00 C\n\nSongs:\n0:10 D\n2:00 E"), ["A", "B", "C"])
         self.assertEqual(titles("Just text, no timestamps."), [])
+        self.assertEqual(titles("0:00 A\n0:10 B\n0:20 C"), ["A", "B", "C"])  # 10 seconds is enough
+        self.assertEqual(titles("0:00 A\n0:05 B\n0:20 C"), [])  # a chapter under 10 seconds
+
+    def test_last_chapter_needs_10_seconds_of_video(self):
+        description = "0:00 A\n0:30 B\n1:00 C"
+        self.assertEqual(len(youtube._chapters(description, 70)), 3)
+        self.assertEqual(youtube._chapters(description, 65), [])  # the last one would be 5 seconds
+        self.assertEqual(youtube._chapters(description, 50), [])  # starts after the video ends
+        self.assertEqual(len(youtube._chapters(description, None)), 3)  # length unknown (live)
 
 
 if __name__ == "__main__":
