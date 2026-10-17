@@ -10,8 +10,9 @@ Usage:
     python3 youtube.py edit <playlist_id> [--title T] [--description D] [--privacy P]
     python3 youtube.py add <playlist_id> <video_url_or_id> [...]
     python3 youtube.py videos <playlist_id>
-    python3 youtube.py remove <playlist_item_id> [...]
-    python3 youtube.py delete <playlist_id>
+    python3 youtube.py remove <playlist_item_id> [...] [--yes]  # Without --yes: preview only
+    python3 youtube.py delete <playlist_id> [--yes]             # Without --yes: preview only
+    python3 youtube.py logout                      # Revoke the sign-in, delete the tokens
 
 Credentials live in ~/.openclaw/youtube/config.json (env vars override it);
 OAuth tokens in ~/.openclaw/youtube/tokens.json. Standard library only.
@@ -46,10 +47,12 @@ PENDING_AUTH_FILE = CONFIG_DIR / "pending-auth.json"
 API_BASE = "https://www.googleapis.com/youtube/v3"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 SCOPES = "https://www.googleapis.com/auth/youtube"
 AUTH_CALLBACK_PORT = 8923
 AUTH_TIMEOUT = 300  # seconds to wait for the browser to come back
 HTTP_TIMEOUT = 30
+NEEDS_CONFIRMATION_EXIT = 3  # `delete`/`remove` without --yes: previewed, nothing changed
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 # playlistItems.insert errors that concern one video; anything else stops `add`
@@ -97,6 +100,9 @@ def _load_config() -> dict:
     cfg = {}
     if CONFIG_FILE.exists():
         try:
+            if os.name == "posix" and CONFIG_FILE.stat().st_mode & 0o077:
+                print(f"Warning: {CONFIG_FILE} is readable by other users; "
+                      "restrict it to your account (file mode 600).", file=sys.stderr)
             cfg = json.loads(CONFIG_FILE.read_text())
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Failed to read {CONFIG_FILE}: {e}", file=sys.stderr)
@@ -471,8 +477,44 @@ def cmd_videos(args):
         print("Playlist is empty.")
 
 
+def _needs_confirmation(what: str):
+    """Stop after a preview: destructive commands only run with --yes."""
+    print(f"\nNothing was {what}. Show this to the user and, after a clear yes, "
+          "run the same command with --yes.", file=sys.stderr)
+    sys.exit(NEEDS_CONFIRMATION_EXIT)
+
+
+def _playlist_titles(playlist_ids: list, tokens: dict) -> dict:
+    titles = {}
+    for i in range(0, len(playlist_ids), 50):
+        params = {"part": "snippet", "id": ",".join(playlist_ids[i:i + 50])}
+        for p in api_request("GET", _api_url("playlists", params), tokens).get("items", []):
+            titles[p["id"]] = p["snippet"]["title"]
+    return titles
+
+
 def cmd_remove(args):
     tokens = load_tokens()
+
+    # Show exactly what goes before anything is removed
+    found = {}
+    for i in range(0, len(args.item_ids), 50):
+        params = {"part": "snippet", "id": ",".join(args.item_ids[i:i + 50])}
+        for item in api_request("GET", _api_url("playlistItems", params), tokens).get("items", []):
+            found[item["id"]] = item["snippet"]
+    titles = _playlist_titles(sorted({s["playlistId"] for s in found.values()}), tokens)
+    print(f"{'Removing' if args.yes else 'Would remove'} {len(args.item_ids)} playlist entr"
+          f"{'y' if len(args.item_ids) == 1 else 'ies'}:")
+    for item_id in args.item_ids:
+        s = found.get(item_id)
+        if s:
+            playlist = titles.get(s["playlistId"], s["playlistId"])
+            print(f"  - \"{s['title']}\" from \"{playlist}\"  [{item_id}]")
+        else:
+            print(f"  - unknown entry (not found, or not visible yet)  [{item_id}]")
+    if not args.yes:
+        _needs_confirmation("removed")
+
     for item_id in args.item_ids:
         api_request("DELETE", _api_url("playlistItems", {"id": item_id}), tokens)
         print(f"  ✅ Removed item {item_id}")
@@ -480,8 +522,43 @@ def cmd_remove(args):
 
 def cmd_delete(args):
     tokens = load_tokens()
+
+    # Show exactly what goes before anything is deleted
+    params = {"part": "snippet,contentDetails,status", "id": args.playlist_id}
+    items = api_request("GET", _api_url("playlists", params), tokens).get("items", [])
+    if items:
+        p = items[0]
+        label = (f"\"{p['snippet']['title']}\" ({p['contentDetails']['itemCount']} videos, "
+                 f"{p['status']['privacyStatus']})")
+    else:
+        label = "unknown playlist (not found, or not visible yet)"
+    print(f"{'Deleting' if args.yes else 'Would delete'} playlist {label}  [{args.playlist_id}]")
+    if not args.yes:
+        _needs_confirmation("deleted")
+
     api_request("DELETE", _api_url("playlists", {"id": args.playlist_id}), tokens)
     print(f"  ✅ Deleted playlist {args.playlist_id}")
+
+
+def cmd_logout(_args):
+    """Revoke the sign-in at Google, then delete the local tokens."""
+    if not TOKEN_FILE.exists():
+        print("Not signed in; nothing to do.")
+        return
+    tokens = load_tokens()
+    token = tokens.get("refresh_token") or tokens.get("access_token")
+    if token:
+        try:
+            _post_form(REVOKE_URL, {"token": token})
+            print("✅ Revoked the sign-in at Google.")
+        except ApiError as e:
+            if e.reason != "invalid_token":
+                _fail(f"Could not revoke the sign-in ({e}); {TOKEN_FILE} was kept. Try again, or "
+                      "remove the app at https://myaccount.google.com/permissions")
+            print("The stored sign-in was already invalid at Google.")
+    TOKEN_FILE.unlink(missing_ok=True)
+    PENDING_AUTH_FILE.unlink(missing_ok=True)
+    print(f"✅ Deleted {TOKEN_FILE}")
 
 
 def cmd_edit(args):
@@ -602,6 +679,9 @@ def main():
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     except (AttributeError, ValueError):
         pass
+    # Keep stdout and stderr in order when both go to one pipe (as agents read them)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
 
     parser = argparse.ArgumentParser(description="YouTube search and playlist manager")
     sub = parser.add_subparsers(dest="command")
@@ -631,9 +711,15 @@ def main():
     p_rm = sub.add_parser("remove", help="Remove videos from a playlist")
     p_rm.add_argument("item_ids", nargs="+", metavar="item_id",
                       help="Playlist item ID(s), as shown by `videos`")
+    p_rm.add_argument("--yes", action="store_true",
+                      help="Really remove them (without it, only shows what would be removed)")
 
     p_del = sub.add_parser("delete", help="Delete an entire playlist")
     p_del.add_argument("playlist_id", help="Playlist ID to delete")
+    p_del.add_argument("--yes", action="store_true",
+                       help="Really delete it (without it, only shows what would be deleted)")
+
+    sub.add_parser("logout", help="Revoke the Google sign-in and delete the stored tokens")
 
     p_edit = sub.add_parser("edit", help="Edit a playlist (title, description, privacy)")
     p_edit.add_argument("playlist_id")
@@ -663,6 +749,7 @@ def main():
         "auth": cmd_auth, "create": cmd_create, "list": cmd_list,
         "add": cmd_add, "videos": cmd_videos, "remove": cmd_remove,
         "delete": cmd_delete, "edit": cmd_edit, "search": cmd_search,
+        "logout": cmd_logout,
     }
     try:
         cmds[args.command](args)
