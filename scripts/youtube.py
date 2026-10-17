@@ -83,6 +83,11 @@ class ApiError(Exception):
         self.status = status
         self.reason = reason
 
+    @property
+    def code(self) -> str:
+        """Google's reason (e.g. playlistNotFound, invalid_grant), or the HTTP status."""
+        return self.reason or f"http_{self.status}"
+
     def __str__(self):
         reason = f" {self.reason}" if self.reason else ""
         return f"API error {self.status}{reason}: {self.args[0]}"
@@ -139,9 +144,8 @@ def _fail(message: str, code: str = "error", exit_code: int = 1):
 
 def _abort(partial: dict, e: "ApiError"):
     """Stop a run part-way: the JSON lists what already happened, plus the error."""
-    code = e.reason or f"http_{e.status}"
     if JSON_MODE:
-        _write_json(dict(partial, ok=False, error={"message": str(e), "code": code}))
+        _write_json(dict(partial, ok=False, error={"message": str(e), "code": e.code}))
     print(f"ERROR: {e}", file=sys.stderr)
     sys.exit(1)
 
@@ -183,8 +187,11 @@ def _load_config() -> dict:
                 print(f"Warning: {CONFIG_FILE} is readable by other users; "
                       "restrict it to your account (file mode 600).", file=sys.stderr)
             cfg = json.loads(CONFIG_FILE.read_text())
-        except (json.JSONDecodeError, OSError) as e:
+            if not isinstance(cfg, dict):
+                raise ValueError("expected a JSON object")
+        except (ValueError, OSError) as e:
             print(f"Warning: Failed to read {CONFIG_FILE}: {e}", file=sys.stderr)
+            cfg = {}
 
     # Env vars override config.json
     api_key = os.environ.get("YOUTUBE_API_KEY") or cfg.get("api_key", "")
@@ -229,15 +236,18 @@ def load_tokens() -> dict:
     if not TOKEN_FILE.exists():
         _fail("Not signed in to YouTube. Run: youtube.py auth", "not_signed_in")
     try:
-        return json.loads(TOKEN_FILE.read_text())
+        tokens = json.loads(TOKEN_FILE.read_text())
+        if not isinstance(tokens, dict):
+            raise ValueError("expected a JSON object")
+        return tokens
     except (ValueError, OSError) as e:
-        _fail(f"Cannot read {TOKEN_FILE} ({e}). Run: youtube.py auth")
+        _fail(f"Cannot read {TOKEN_FILE} ({e}). Run: youtube.py auth", "not_signed_in")
 
 
 def refresh_access_token(tokens: dict) -> dict:
     """Renew the expired sign-in; updates `tokens` in place and on disk."""
     if not tokens.get("refresh_token"):
-        _fail("No refresh token stored. Run: youtube.py auth")
+        _fail("No refresh token stored. Run: youtube.py auth", "not_signed_in")
     client_id, client_secret = _require_oauth(_load_config())
     try:
         new = _post_form(TOKEN_URL, {
@@ -248,12 +258,12 @@ def refresh_access_token(tokens: dict) -> dict:
         })
     except ApiError as e:
         if e.reason != "invalid_grant":
-            _fail(f"Token refresh failed: {e}")
+            _fail(f"Token refresh failed: {e}", e.code)
         hint = ""
         if tokens.get("refresh_token_expires_in"):
             hint = ("\nGoogle gave this sign-in a limited lifetime, usually because the OAuth consent "
                     "screen is in Testing mode (7 days). Publish the app to stay signed in (see SETUP.md).")
-        _fail("Google rejected the stored sign-in (expired or revoked). Run: youtube.py auth" + hint)
+        _fail("Google rejected the stored sign-in (expired or revoked). Run: youtube.py auth" + hint, e.code)
     tokens["access_token"] = new["access_token"]
     if new.get("refresh_token"):
         tokens["refresh_token"] = new["refresh_token"]
@@ -422,7 +432,7 @@ def cmd_auth(args):
             server.handle_request()
 
     if result.get("error"):
-        _fail(f"Google sign-in failed: {result['error']}")
+        _fail(f"Google sign-in failed: {result['error']}", result["error"])
     if not result.get("code"):
         _fail('No callback received. Finish manually: youtube.py auth --code "<redirect address>"')
     _exchange_code(result["code"], client_id, client_secret, redirect_uri, verifier)
@@ -436,6 +446,8 @@ def _finish_manual_auth(code_or_url: str, client_id: str, client_secret: str):
             pending = json.loads(PENDING_AUTH_FILE.read_text())
         except (ValueError, OSError):
             pass
+    if not isinstance(pending, dict):
+        pending = {}
     if not pending.get("redirect_uri"):
         _fail("No sign-in in progress. Run: youtube.py auth --manual, then pass the result to --code.")
 
@@ -444,7 +456,7 @@ def _finish_manual_auth(code_or_url: str, client_id: str, client_secret: str):
         query = urllib.parse.urlparse(code).query or code.lstrip("?")
         qs = urllib.parse.parse_qs(query)
         if qs.get("error"):
-            _fail(f"Google sign-in failed: {qs['error'][0]}")
+            _fail(f"Google sign-in failed: {qs['error'][0]}", qs["error"][0])
         if qs.get("state", [None])[0] != pending.get("state"):
             _fail("That address belongs to a different sign-in attempt. Run: youtube.py auth --manual")
         code = qs.get("code", [""])[0]
@@ -466,7 +478,7 @@ def _exchange_code(code: str, client_id: str, client_secret: str, redirect_uri: 
     try:
         tokens = _post_form(TOKEN_URL, fields)
     except ApiError as e:
-        _fail(f"Token exchange failed: {e}")
+        _fail(f"Token exchange failed: {e}", e.code)
     tokens["obtained_at"] = int(time.time())
     save_tokens(tokens)
     PENDING_AUTH_FILE.unlink(missing_ok=True)
@@ -675,7 +687,7 @@ def cmd_logout(_args):
         except ApiError as e:
             if e.reason != "invalid_token":
                 _fail(f"Could not revoke the sign-in ({e}); {TOKEN_FILE} was kept. Try again, or "
-                      "remove the app at https://myaccount.google.com/permissions")
+                      "remove the app at https://myaccount.google.com/permissions", e.code)
             print("The stored sign-in was already invalid at Google.")
     TOKEN_FILE.unlink(missing_ok=True)
     PENDING_AUTH_FILE.unlink(missing_ok=True)
@@ -685,7 +697,7 @@ def cmd_logout(_args):
 
 def cmd_edit(args):
     if args.title is None and args.description is None and args.privacy is None:
-        _fail("Nothing to change. Pass --title, --description and/or --privacy.")
+        _fail("Nothing to change. Pass --title, --description and/or --privacy.", "usage", 2)
     tokens = load_tokens()
 
     # 1. Fetch current playlist details (title is required for updates).
@@ -698,7 +710,7 @@ def cmd_edit(args):
         if data.get("items"):
             break
     else:
-        _fail(f"Playlist {args.playlist_id} not found.")
+        _fail(f"Playlist {args.playlist_id} not found.", "playlistNotFound")
 
     playlist = data["items"][0]
     snippet = playlist["snippet"]
@@ -909,7 +921,7 @@ def main():
         cmds[args.command](args)
         _flush_result()
     except ApiError as e:
-        _fail(str(e), e.reason or f"http_{e.status}")
+        _fail(str(e), e.code)
     except (urllib.error.URLError, socket.timeout) as e:
         _fail(f"Network error: {getattr(e, 'reason', e)}", "network_error")
     except OSError as e:  # e.g. a config folder that can't be written; dropped connections have no filename
