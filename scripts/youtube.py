@@ -487,7 +487,7 @@ def _needs_confirmation(what: str):
 def _playlist_titles(playlist_ids: list, tokens: dict) -> dict:
     titles = {}
     for i in range(0, len(playlist_ids), 50):
-        params = {"part": "snippet", "id": ",".join(playlist_ids[i:i + 50])}
+        params = {"part": "snippet", "id": ",".join(playlist_ids[i:i + 50]), "maxResults": 50}
         for p in api_request("GET", _api_url("playlists", params), tokens).get("items", []):
             titles[p["id"]] = p["snippet"]["title"]
     return titles
@@ -496,10 +496,11 @@ def _playlist_titles(playlist_ids: list, tokens: dict) -> dict:
 def cmd_remove(args):
     tokens = load_tokens()
 
-    # Show exactly what goes before anything is removed
+    # Show exactly what goes before anything is removed. Lookups by ID page too
+    # (5 results by default), so ask for the whole batch of up to 50.
     found = {}
     for i in range(0, len(args.item_ids), 50):
-        params = {"part": "snippet", "id": ",".join(args.item_ids[i:i + 50])}
+        params = {"part": "snippet", "id": ",".join(args.item_ids[i:i + 50]), "maxResults": 50}
         for item in api_request("GET", _api_url("playlistItems", params), tokens).get("items", []):
             found[item["id"]] = item["snippet"]
     titles = _playlist_titles(sorted({s["playlistId"] for s in found.values()}), tokens)
