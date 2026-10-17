@@ -912,6 +912,11 @@ def main():
         _fail(str(e), e.reason or f"http_{e.status}")
     except (urllib.error.URLError, socket.timeout) as e:
         _fail(f"Network error: {getattr(e, 'reason', e)}", "network_error")
+    except OSError as e:  # e.g. a config folder that can't be written; dropped connections have no filename
+        if e.filename:
+            _fail(f"Cannot use {e.filename}: {e.strerror or e}. Check the config folder "
+                  "or set YOUTUBE_SKILL_CONFIG_DIR.", "filesystem_error")
+        _fail(f"Network error: {e}", "network_error")
     except KeyboardInterrupt:
         sys.exit(130)
 

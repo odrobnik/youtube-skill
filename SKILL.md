@@ -86,7 +86,7 @@ Add `--json` before or after the subcommand (`youtube.py --json list` = `youtube
 
 - **stdout carries exactly one JSON document**, also for errors. Human-readable text, emoji and warnings go to stderr (discard with `2>/dev/null`).
 - Pretty-printed (indent 2) when stdout is a terminal, compact one-line JSON when piped. UTF-8, not ASCII-escaped. Search results arrive HTML-escaped from YouTube; their entities (`&amp;`, `&#39;`) are decoded, in text and JSON mode. Playlist data is passed through unchanged.
-- **Errors:** `{"error": {"message": "...", "code": "..."}}` on stdout, non-zero exit (1 = failure, 2 = usage, including bad option values). `code` is the API reason (e.g. `playlistNotFound`, `invalid`), or `not_signed_in`, `missing_credentials`, `missing_oauth_client`, `network_error`, `usage`.
+- **Errors:** `{"error": {"message": "...", "code": "..."}}` on stdout, non-zero exit (1 = failure, 2 = usage, including bad option values). `code` is the API reason (e.g. `playlistNotFound`, `invalid`), or `not_signed_in`, `missing_credentials`, `missing_oauth_client`, `network_error`, `filesystem_error`, `usage`.
 - If `add` or `remove` stops part-way on a playlist-level error, the JSON still lists what was already done, with `"ok": false` and an `error` object.
 
 | Command | JSON shape |
