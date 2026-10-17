@@ -2,7 +2,7 @@
 name: youtube-playlist-manager
 description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored in ~/.openclaw/youtube/, refreshed automatically, and revoked by logout. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
 summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
-version: 1.1.2
+version: 1.1.3
 homepage: https://github.com/odrobnik/youtube-skill
 permissions:
   - "network: Google only (www.googleapis.com, accounts.google.com, oauth2.googleapis.com), plus the local sign-in callback on 127.0.0.1 (port 8923 by default, or the one passed to auth --port)"
