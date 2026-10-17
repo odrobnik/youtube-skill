@@ -2,7 +2,7 @@
 name: youtube-playlist-manager
 description: "Search YouTube and manage the user's own YouTube playlists via the YouTube Data API v3. Search works with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored locally (by default in ~/.openclaw/youtube/), refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube or to view or change their YouTube playlists."
 summary: "YouTube search (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
-version: 1.2.1
+version: 1.2.2
 homepage: https://github.com/odrobnik/youtube-skill
 compatibility: "Python 3.8+ (standard library only) and network access to Google APIs. Works in OpenClaw, Claude Code, Codex and other agents that read SKILL.md."
 permissions:
@@ -39,9 +39,9 @@ metadata:
 
 Search YouTube and manage your own playlists through the YouTube Data API v3.
 
-**Entry point:** `scripts/youtube.py` in this skill's folder (Python 3 standard library only)
+**Entry point:** `{baseDir}/scripts/youtube.py` (Python 3 standard library only)
 
-Paths in this file are relative to the skill's folder, the one that contains this SKILL.md. Run the script by its full path, for example `python3 /path/to/youtube-playlist-manager/scripts/youtube.py list`, or from inside that folder. OpenClaw's docs call this folder `{baseDir}`; Claude Code also provides it as `${CLAUDE_SKILL_DIR}`.
+`{baseDir}` is this skill's folder, the one that contains this SKILL.md. Commands run in the agent's workspace, so use the folder's full path: OpenClaw's agent resolves `{baseDir}` itself, Claude Code provides it as `${CLAUDE_SKILL_DIR}`, and other agents can take it from where they found this file.
 
 ## When to use
 
@@ -59,25 +59,25 @@ Credentials are read from `config.json` in the config folder: `~/.openclaw/youtu
 
 ```bash
 # Search (uses the API key, or the sign-in if no key is set)
-python3 scripts/youtube.py search "query" [--max 1-50] [--order relevance|date|viewCount|rating|title|videoCount]
-python3 scripts/youtube.py search "query" [--duration short|medium|long] [--hd] [--after YYYY-MM-DD] [--channel CHANNEL_ID]
+python3 {baseDir}/scripts/youtube.py search "query" [--max 1-50] [--order relevance|date|viewCount|rating|title|videoCount]
+python3 {baseDir}/scripts/youtube.py search "query" [--duration short|medium|long] [--hd] [--after YYYY-MM-DD] [--channel CHANNEL_ID]
 
 # Sign in (one-time) and out
-python3 scripts/youtube.py auth                      # opens a browser, waits for the localhost callback
-python3 scripts/youtube.py auth --manual             # prints the consent URL and exits
-python3 scripts/youtube.py auth --code "<redirect address or code>"
-python3 scripts/youtube.py logout                    # revokes the sign-in at Google, deletes tokens.json
+python3 {baseDir}/scripts/youtube.py auth                      # opens a browser, waits for the localhost callback
+python3 {baseDir}/scripts/youtube.py auth --manual             # prints the consent URL and exits
+python3 {baseDir}/scripts/youtube.py auth --code "<redirect address or code>"
+python3 {baseDir}/scripts/youtube.py logout                    # revokes the sign-in at Google, deletes tokens.json
 
 # Playlists
-python3 scripts/youtube.py list
-python3 scripts/youtube.py create "Name" [--privacy private|unlisted|public] [--description "..."]
-python3 scripts/youtube.py edit PLAYLIST_ID [--title "..."] [--description "..."] [--privacy private|unlisted|public]
-python3 scripts/youtube.py delete PLAYLIST_ID [--yes]
+python3 {baseDir}/scripts/youtube.py list
+python3 {baseDir}/scripts/youtube.py create "Name" [--privacy private|unlisted|public] [--description "..."]
+python3 {baseDir}/scripts/youtube.py edit PLAYLIST_ID [--title "..."] [--description "..."] [--privacy private|unlisted|public]
+python3 {baseDir}/scripts/youtube.py delete PLAYLIST_ID [--yes]
 
 # Videos in a playlist
-python3 scripts/youtube.py videos PLAYLIST_ID      # shows each entry's Item ID
-python3 scripts/youtube.py add PLAYLIST_ID VIDEO_URL_OR_ID [more ...]
-python3 scripts/youtube.py remove ITEM_ID [more ...] [--yes]
+python3 {baseDir}/scripts/youtube.py videos PLAYLIST_ID      # shows each entry's Item ID
+python3 {baseDir}/scripts/youtube.py add PLAYLIST_ID VIDEO_URL_OR_ID [more ...]
+python3 {baseDir}/scripts/youtube.py remove ITEM_ID [more ...] [--yes]
 ```
 
 ## JSON output (`--json`)
@@ -103,9 +103,9 @@ Add `--json` before or after the subcommand (`youtube.py --json list` = `youtube
 | `logout` | `{ok, revoked, tokens_deleted, was_signed_in}` |
 
 ```bash
-python3 scripts/youtube.py --json search "lego technic" --max 3 | jq -r '.[] | "\(.title)\t\(.url)"'
-python3 scripts/youtube.py list --json | jq -r '.[] | select(.privacy == "private") | .id'
-python3 scripts/youtube.py videos PLAYLIST_ID --json | jq -r '.[].item_id'
+python3 {baseDir}/scripts/youtube.py --json search "lego technic" --max 3 | jq -r '.[] | "\(.title)\t\(.url)"'
+python3 {baseDir}/scripts/youtube.py list --json | jq -r '.[] | select(.privacy == "private") | .id'
+python3 {baseDir}/scripts/youtube.py videos PLAYLIST_ID --json | jq -r '.[].item_id'
 ```
 
 ## How to use it
