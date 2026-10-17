@@ -81,7 +81,7 @@ SCOPES = "https://www.googleapis.com/auth/youtube"
 AUTH_CALLBACK_PORT = 8923
 AUTH_TIMEOUT = 300  # seconds to wait for the browser to come back
 HTTP_TIMEOUT = 30
-NEEDS_CONFIRMATION_EXIT = 3  # `delete`/`remove` without --yes: previewed, nothing changed
+NEEDS_CONFIRMATION_EXIT = 3  # a delete or remove run without --yes only previews, then exits with this
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 # playlistItems.insert errors that concern one video; anything else stops `add`
