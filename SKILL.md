@@ -2,7 +2,7 @@
 name: youtube-playlist-manager
 description: "Search YouTube, get full video details, and manage the user's own YouTube playlists via the YouTube Data API v3. Search and video details work with just an API key, without signing in. Managing playlists needs a one-time Google OAuth sign-in in the browser: list playlists and the videos in them, create, edit (title, description, privacy) and delete playlists, add and remove videos. The sign-in is stored locally (by default in ~/.openclaw/youtube/), refreshed automatically, and revoked by logout. Every command can also print JSON (--json) for scripts. Use when the user explicitly asks to search YouTube, get details of a video, or to view or change their YouTube playlists."
 summary: "YouTube search, video details (API key) and playlist management (Google OAuth sign-in) via the Data API v3."
-version: 1.3.0
+version: 1.3.1
 homepage: https://github.com/odrobnik/youtube-skill
 compatibility: "Python 3.8+ (standard library only) and network access to Google APIs. Works in OpenClaw, Claude Code, Codex and other agents that read SKILL.md."
 permissions:

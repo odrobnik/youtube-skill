@@ -54,6 +54,10 @@ def _exists(path: Path) -> bool:
         return False
 
 
+def _has_settings(folder: Path) -> bool:
+    return _exists(folder / "config.json") or _exists(folder / "tokens.json")
+
+
 def _config_dir() -> Path:
     """Where config and tokens live; ~/.openclaw is kept by OpenClaw's backups and Docker setups."""
     custom = os.environ.get("YOUTUBE_SKILL_CONFIG_DIR")
@@ -63,8 +67,9 @@ def _config_dir() -> Path:
     state = os.environ.get("OPENCLAW_STATE_DIR")
     if state:
         moved = Path(state).expanduser() / "youtube"
-        # Before 1.2.0 the folder was always ~/.openclaw/youtube: keep using it until the files move
-        if _exists(moved) or not _exists(legacy):
+        # Before 1.2.0 the folder was always ~/.openclaw/youtube: keep using it until its files
+        # move. An empty folder at the new place (created ahead, say) doesn't count.
+        if _has_settings(moved) or not _has_settings(legacy):
             return moved
     return legacy
 
