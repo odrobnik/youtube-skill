@@ -141,6 +141,29 @@ class VideoCommandTest(unittest.TestCase):
         self.assertEqual(result[1]["error"]["code"], "videoNotFound")
         self.assertIn("bbbbbbbbbbb", err)
 
+    def test_bare_ids_that_start_with_a_hyphen(self):
+        self.fake(video("-abcdefghij"), video("dQw4w9WgXcQ"))
+        for argv in (("--json", "video", "-abcdefghij", "dQw4w9WgXcQ"),
+                     ("video", "-abcdefghij", "dQw4w9WgXcQ", "--json"),
+                     ("--json", "video", "--", "-abcdefghij", "dQw4w9WgXcQ")):
+            code, out, err = run(*argv)
+            self.assertEqual(code, 0, err)
+            self.assertEqual([v["video_id"] for v in json.loads(out)], ["-abcdefghij", "dQw4w9WgXcQ"])
+
+    def test_add_takes_a_bare_id_that_starts_with_a_hyphen(self):
+        added = []
+
+        def api_request(method, url, tokens, body=None, retry=True):
+            added.append(body["snippet"]["resourceId"]["videoId"])
+            return {"id": "ITEM1", "snippet": {"title": "A video"}}
+
+        with mock.patch.object(youtube, "load_tokens", return_value={"access_token": "T"}), \
+                mock.patch.object(youtube, "api_request", api_request):
+            code, out, err = run("add", "PL0123456789abcdef", "-abcdefghij", "--json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(added, ["-abcdefghij"])
+        self.assertEqual(json.loads(out)["results"][0]["input"], "-abcdefghij")
+
     def test_live_and_upcoming_have_no_duration(self):
         self.fake(video("aaaaaaaaaaa", duration="P0D", live="live"),
                   video("bbbbbbbbbbb", duration="P0D", live="upcoming"))

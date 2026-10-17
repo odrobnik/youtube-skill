@@ -550,7 +550,7 @@ def cmd_list(_args):
 def cmd_add(args):
     tokens = load_tokens()
     failed, results = 0, []
-    for vid in args.videos:
+    for vid in (v.strip() for v in args.videos):  # main() pads bare IDs that start with -
         video_id = extract_video_id(vid)
         if not video_id:
             print(f"  ❌ Not a YouTube video URL or ID: {vid}", file=sys.stderr)
@@ -1037,13 +1037,20 @@ def main():
 
     global JSON_MODE, _JSON_OUT
     _JSON_OUT = sys.stdout
-    argv = sys.argv[1:sys.argv.index("--") if "--" in sys.argv else None]
+    words = sys.argv[1:]
+    command_at = next((i for i, a in enumerate(words) if not a.startswith("-")), len(words))
+    if words[command_at:command_at + 1] in (["video"], ["add"]):
+        # 1 in 64 video IDs starts with "-", which argparse would take for an option. A leading
+        # space keeps such a bare ID positional; extract_video_id strips it again.
+        words[command_at + 1:] = [" " + a if a.startswith("-") and VIDEO_ID_RE.match(a) else a
+                                  for a in words[command_at + 1:]]
+    argv = words[:words.index("--") if "--" in words else None]
     if any(len(a) >= 3 and "--json".startswith(a) for a in argv):  # argparse also accepts --j, --js, --jso
         JSON_MODE = True  # set early so argparse usage errors are reported as JSON too
         sys.stdout = sys.stderr
         for p in (parser, *subparsers):  # a bad value for a subcommand option errors in its subparser
             p.error = lambda msg: _fail(msg, "usage", 2)
-    args = parser.parse_args()
+    args = parser.parse_args(words)
     JSON_MODE = getattr(args, "json", False) or JSON_MODE
     if JSON_MODE and sys.stdout is _JSON_OUT:
         sys.stdout = sys.stderr
