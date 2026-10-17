@@ -22,7 +22,7 @@ From GitHub, for example for Claude Code:
 git clone https://github.com/odrobnik/youtube-skill ~/.claude/skills/youtube-playlist-manager
 ```
 
-The commands in SKILL.md are relative to this folder (`scripts/youtube.py`); agents run them by full path.
+The commands in SKILL.md start with `{baseDir}/`, meaning this folder; agents put in its full path. The examples below run from inside the folder.
 
 ## Where Credentials Live
 
