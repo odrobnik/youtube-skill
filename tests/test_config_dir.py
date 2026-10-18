@@ -65,6 +65,11 @@ class ConfigDirTest(unittest.TestCase):
         self.put(self.moved, "config.json")
         self.assertEqual(self.config_dir(), self.moved)
 
+    def test_a_sign_in_in_progress_stays_resumable(self):
+        self.put(self.legacy, "pending-auth.json")  # auth --manual ran here, auth --code is next
+        self.moved.mkdir(parents=True)
+        self.assertEqual(self.config_dir(), self.legacy)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,7 +55,8 @@ def _exists(path: Path) -> bool:
 
 
 def _has_settings(folder: Path) -> bool:
-    return _exists(folder / "config.json") or _exists(folder / "tokens.json")
+    """A config, a sign-in, or a sign-in in progress (auth --manual, then auth --code)."""
+    return any(_exists(folder / name) for name in ("config.json", "tokens.json", "pending-auth.json"))
 
 
 def _config_dir() -> Path:
